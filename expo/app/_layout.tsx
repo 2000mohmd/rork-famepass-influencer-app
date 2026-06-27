@@ -1,0 +1,262 @@
+import createContextHook from "@nkzw/create-context-hook";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Stack, useRouter, useSegments } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { ActivityIndicator, View } from "react-native";
+
+import Colors from "@/constants/colors";
+import { supabase } from "@/lib/supabase";
+
+const queryClient = new QueryClient();
+
+type UserProfile = {
+  id: string;
+  full_name: string;
+  avatar_url: string | null;
+  bio: string | null;
+  instagram_handle: string | null;
+  tiktok_handle: string | null;
+  followers_count: number;
+  engagement_rate: number;
+};
+
+type AuthState = {
+  session: any | null;
+  profile: UserProfile | null;
+  isLoading: boolean;
+  isInfluencer: boolean;
+};
+
+export const [AuthProvider, useAuth] = createContextHook(() => {
+  const [session, setSession] = useState<any | null>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isInfluencer, setIsInfluencer] = useState(false);
+  const router = useRouter();
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session: s } }) => {
+      setSession(s);
+      if (s) {
+        checkRole(s.user.id);
+      } else {
+        setIsLoading(false);
+      }
+    });
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (_event, s) => {
+        setSession(s);
+        if (s) {
+          checkRole(s.user.id);
+        } else {
+          setProfile(null);
+          setIsInfluencer(false);
+          setIsLoading(false);
+        }
+      },
+    );
+
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
+  }, []);
+
+  const checkRole = async (userId: string) => {
+    try {
+      const { data: roleData } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", userId)
+        .single();
+
+      if (roleData?.role === "influencer") {
+        setIsInfluencer(true);
+        await fetchProfile(userId);
+      } else {
+        setIsInfluencer(false);
+        setIsLoading(false);
+      }
+    } catch {
+      setIsInfluencer(false);
+      setIsLoading(false);
+    }
+  };
+
+  const fetchProfile = async (userId: string) => {
+    try {
+      const { data } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", userId)
+        .single();
+
+      if (data) {
+        setProfile(data as UserProfile);
+      }
+    } catch {
+      // Profile might not exist yet
+    }
+    setIsLoading(false);
+  };
+
+  const signOut = useCallback(async () => {
+    await supabase.auth.signOut();
+    setSession(null);
+    setProfile(null);
+    setIsInfluencer(false);
+    router.replace("/");
+  }, [router]);
+
+  return {
+    session,
+    profile,
+    isLoading,
+    isInfluencer,
+    signOut,
+    refreshProfile: () => session && fetchProfile(session.user.id),
+  };
+});
+
+/** Guard that redirects unauthenticated users away from protected routes */
+function AuthGuard({ children }: { children: React.ReactNode }) {
+  const { session, isLoading, isInfluencer } = useAuth();
+  const segments = useSegments();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (isLoading) return;
+
+    const inTabsGroup = segments[0] === "(tabs)";
+
+    if (!session || !isInfluencer) {
+      if (inTabsGroup) {
+        router.replace("/");
+      }
+    }
+  }, [session, isLoading, isInfluencer, segments]);
+
+  if (isLoading) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: Colors.dark.background,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <ActivityIndicator size="large" color={Colors.dark.accent} />
+      </View>
+    );
+  }
+
+  return <>{children}</>;
+}
+
+export default function RootLayout() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <AuthGuard>
+          <View style={{ flex: 1, backgroundColor: Colors.dark.background }}>
+            <StatusBar style="light" />
+            <Stack
+              screenOptions={{
+                headerShown: false,
+                contentStyle: { backgroundColor: Colors.dark.background },
+                animation: "slide_from_right",
+              }}
+            >
+              <Stack.Screen name="index" />
+              <Stack.Screen name="(tabs)" />
+              <Stack.Screen
+                name="login"
+                options={{
+                  headerShown: true,
+                  headerTitle: "",
+                  headerTransparent: true,
+                  headerTintColor: Colors.dark.text,
+                  animation: "slide_from_bottom",
+                }}
+              />
+              <Stack.Screen
+                name="forgot-password"
+                options={{
+                  headerShown: true,
+                  headerTitle: "",
+                  headerTransparent: true,
+                  headerTintColor: Colors.dark.text,
+                  animation: "slide_from_right",
+                }}
+              />
+              <Stack.Screen
+                name="signup"
+                options={{
+                  headerShown: true,
+                  headerTitle: "",
+                  headerTransparent: true,
+                  headerTintColor: Colors.dark.text,
+                  animation: "slide_from_right",
+                }}
+              />
+              <Stack.Screen
+                name="settings"
+                options={{
+                  headerShown: true,
+                  headerTitle: "Settings",
+                  headerStyle: { backgroundColor: Colors.dark.background },
+                  headerTintColor: Colors.dark.text,
+                  animation: "slide_from_right",
+                }}
+              />
+              <Stack.Screen
+                name="edit-profile"
+                options={{
+                  headerShown: true,
+                  headerTitle: "Edit Profile",
+                  headerStyle: { backgroundColor: Colors.dark.background },
+                  headerTintColor: Colors.dark.text,
+                  animation: "slide_from_right",
+                }}
+              />
+              <Stack.Screen
+                name="offer/[id]"
+                options={{
+                  headerShown: true,
+                  headerTitle: "",
+                  headerTransparent: true,
+                  headerTintColor: Colors.dark.text,
+                  animation: "slide_from_right",
+                }}
+              />
+              <Stack.Screen
+                name="connect-social"
+                options={{
+                  headerShown: true,
+                  headerTitle: "Connect Account",
+                  headerStyle: { backgroundColor: Colors.dark.background },
+                  headerTintColor: Colors.dark.text,
+                  presentation: "modal",
+                  animation: "slide_from_bottom",
+                }}
+              />
+              <Stack.Screen
+                name="modal"
+                options={{
+                  presentation: "modal",
+                  headerShown: true,
+                  headerTitle: "",
+                  headerStyle: { backgroundColor: Colors.dark.background },
+                  headerTintColor: Colors.dark.text,
+                  animation: "slide_from_bottom",
+                }}
+              />
+            </Stack>
+          </View>
+        </AuthGuard>
+      </AuthProvider>
+    </QueryClientProvider>
+  );
+}
