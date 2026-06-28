@@ -4,6 +4,7 @@ import {
   Calendar,
   CheckCircle2,
   Clock,
+  Heart,
   MapPin,
   MessageSquareText,
   Share2,
@@ -16,16 +17,20 @@ import {
   ActivityIndicator,
   Dimensions,
   Image,
+  Modal as RNModal,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { useTheme } from "@/hooks/useTheme";
+import { useCurrency } from "@/hooks/useCurrency";
+import { useBookmarkStore } from "@/store/bookmarkStore";
 import type { ThemeColors } from "@/constants/colors";
 import { useAuth } from "@/app/_layout";
 import { supabase } from "@/lib/supabase";
@@ -136,8 +141,14 @@ export default function OfferDetailScreen() {
   const { session, profile } = useAuth();
   const queryClient = useQueryClient();
   const { colors } = useTheme();
+  const currency = useCurrency();
+  const bookmarkStore = useBookmarkStore();
+  const isBookmarked = bookmarkStore.isSaved(id ?? "");
 
   const [applied, setApplied] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [visitDate, setVisitDate] = useState("");
+  const [visitTime, setVisitTime] = useState("");
 
   // Fetch categories for display lookup
   const { data: categoriesData } = useQuery({
@@ -199,10 +210,13 @@ export default function OfferDetailScreen() {
         offer_id: id,
         influencer_id: session.user.id,
         status: "pending",
+        visit_date: visitDate || null,
+        visit_time: visitTime || null,
       });
     },
     onSuccess: () => {
       setApplied(true);
+      setShowDatePicker(false);
       queryClient.invalidateQueries({ queryKey: ["offer-redemption", id] });
     },
   });
@@ -265,6 +279,13 @@ export default function OfferDetailScreen() {
               <MapPin size={48} color={colors.textMuted} />
             </View>
           )}
+          <Pressable
+            style={styles.bookmarkHeart}
+            onPress={() => bookmarkStore.toggle(id ?? "")}
+            hitSlop={8}
+          >
+            <Heart size={20} color={isBookmarked ? colors.red : "#FFF"} fill={isBookmarked ? colors.red : "transparent"} />
+          </Pressable>
           <View style={styles.heroOverlay}>
             <View style={styles.heroTopRow}>
               <View style={[styles.statusChip, { backgroundColor: statusColor + "25", borderColor: statusColor + "40" }]}>
@@ -309,7 +330,7 @@ export default function OfferDetailScreen() {
           <Text style={styles.sectionLabel}>Offer Details</Text>
           <View style={styles.detailsGrid}>
             <View style={styles.detailCard}>
-              <Text style={styles.detailCardValue}>{offer.offerValue}</Text>
+              <Text style={styles.detailCardValue}>{currency} {parseFloat(offer.offerValue.replace(/^[^0-9]*/, ""))?.toLocaleString() || offer.offerValue}</Text>
               <Text style={styles.detailCardLabel}>Value / Worth</Text>
             </View>
             <View style={styles.detailCard}>
@@ -448,7 +469,7 @@ export default function OfferDetailScreen() {
         ) : (
           <Pressable
             style={[styles.ctaButton, applyMutation.isPending && { opacity: 0.6 }]}
-            onPress={() => applyMutation.mutate()}
+            onPress={() => setShowDatePicker(true)}
             disabled={applyMutation.isPending}
           >
             {applyMutation.isPending ? (
@@ -459,6 +480,59 @@ export default function OfferDetailScreen() {
           </Pressable>
         )}
       </View>
+
+      {/* Date Picker Modal */}
+      <RNModal visible={showDatePicker} transparent animationType="fade" onRequestClose={() => setShowDatePicker(false)}>
+        <Pressable style={styles.modalOverlay} onPress={() => setShowDatePicker(false)}>
+          <Pressable style={styles.dateModal} onPress={() => {}}>
+            <Calendar size={32} color={colors.accent} />
+            <Text style={styles.dateModalTitle}>Choose visit date</Text>
+            <Text style={styles.dateModalSubtitle}>Let the venue know when you plan to visit</Text>
+            
+            <View style={styles.dateInputRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.dateInputLabel}>Date</Text>
+                <TextInput
+                  style={styles.dateInput}
+                  placeholder="YYYY-MM-DD"
+                  placeholderTextColor={colors.textMuted}
+                  value={visitDate}
+                  onChangeText={setVisitDate}
+                  autoCapitalize="none"
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.dateInputLabel}>Time (optional)</Text>
+                <TextInput
+                  style={styles.dateInput}
+                  placeholder="e.g. 19:00"
+                  placeholderTextColor={colors.textMuted}
+                  value={visitTime}
+                  onChangeText={setVisitTime}
+                  autoCapitalize="none"
+                />
+              </View>
+            </View>
+
+            <View style={styles.dateModalActions}>
+              <Pressable style={styles.dateModalCancel} onPress={() => { setShowDatePicker(false); setVisitDate(""); setVisitTime(""); }}>
+                <Text style={styles.dateModalCancelText}>Skip</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.dateModalSubmit, applyMutation.isPending && { opacity: 0.6 }]}
+                onPress={() => applyMutation.mutate()}
+                disabled={applyMutation.isPending}
+              >
+                {applyMutation.isPending ? (
+                  <ActivityIndicator size="small" color={colors.background} />
+                ) : (
+                  <Text style={styles.dateModalSubmitText}>Submit</Text>
+                )}
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </RNModal>
     </View>
   );
 }
@@ -522,5 +596,18 @@ function createStyles(colors: ThemeColors) {
     ctaDisabledText: { fontSize: 17, fontWeight: "600", color: colors.textMuted },
     ctaSuccess: { backgroundColor: colors.green + "15", borderWidth: 1, borderColor: colors.green + "30" },
     ctaSuccessText: { fontSize: 17, fontWeight: "700", color: colors.green },
+    bookmarkHeart: { position: "absolute", top: 50, right: 16, zIndex: 5, width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center" },
+    modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.7)", justifyContent: "center", alignItems: "center", padding: 32 },
+    dateModal: { backgroundColor: colors.card, borderRadius: 20, padding: 24, width: "100%", maxWidth: 360, alignItems: "center", borderWidth: 1, borderColor: colors.cardBorder, gap: 12 },
+    dateModalTitle: { fontSize: 20, fontWeight: "700", color: colors.text },
+    dateModalSubtitle: { fontSize: 14, color: colors.textSecondary, textAlign: "center" },
+    dateInputRow: { flexDirection: "row", gap: 10, width: "100%" },
+    dateInputLabel: { fontSize: 12, fontWeight: "600", color: colors.textSecondary, marginBottom: 4 },
+    dateInput: { backgroundColor: colors.inputBackground, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, fontWeight: "600", color: colors.text, borderWidth: 1, borderColor: colors.inputBorder, textAlign: "center" },
+    dateModalActions: { flexDirection: "row", gap: 10, width: "100%", marginTop: 8 },
+    dateModalCancel: { flex: 1, alignItems: "center", paddingVertical: 14, borderRadius: 14, borderWidth: 1, borderColor: colors.cardBorder },
+    dateModalCancelText: { fontSize: 15, fontWeight: "600", color: colors.textSecondary },
+    dateModalSubmit: { flex: 1, alignItems: "center", backgroundColor: colors.accent, paddingVertical: 14, borderRadius: 14 },
+    dateModalSubmitText: { fontSize: 15, fontWeight: "700", color: colors.background },
   });
 }

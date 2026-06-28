@@ -21,6 +21,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { useTheme } from "@/hooks/useTheme";
+import { useCurrency } from "@/hooks/useCurrency";
 import type { ThemeColors } from "@/constants/colors";
 import { useAuth } from "@/app/_layout";
 import { supabase } from "@/lib/supabase";
@@ -68,6 +69,7 @@ export default function AttendanceScreen() {
   const { session } = useAuth();
   const queryClient = useQueryClient();
   const { colors } = useTheme();
+  const currency = useCurrency();
   const [activeTab, setActiveTab] = useState<BookingTab>("upcoming");
   const [checkInBooking, setCheckInBooking] = useState<Booking | null>(null);
   const [otpInput, setOtpInput] = useState("");
@@ -81,8 +83,8 @@ export default function AttendanceScreen() {
         .from("bookings")
         .select(`
           *,
-          offers!inner(id, title, value_worth, offer_type),
-          venues!inner(id, name, logo_url, city)
+          offers(id, title, value_worth),
+          venues(id, name, logo_url, city)
         `)
         .eq("influencer_id", session.user.id)
         .order("created_at", { ascending: false });
@@ -210,7 +212,7 @@ export default function AttendanceScreen() {
                       </View>
                     </View>
                     <View style={styles.cardFooter}>
-                      <Text style={styles.cardValue}>{item.value_worth}</Text>
+                      <Text style={styles.cardValue}>{currency} {item.value_worth?.replace(/^\$/, "")}</Text>
                       {activeTab === "upcoming" && (
                         <Pressable style={styles.checkInButton} onPress={() => handleCheckIn(item)}>
                           <KeyRound size={13} color={colors.accent} />

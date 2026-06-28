@@ -1,5 +1,6 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
+  Heart,
   List,
   Map,
   MapPin,
@@ -18,10 +19,13 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { WebView } from "react-native-webview";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
 
 import { useTheme } from "@/hooks/useTheme";
+import { useCurrency } from "@/hooks/useCurrency";
+import { useBookmarkStore } from "@/store/bookmarkStore";
 import type { ThemeColors } from "@/constants/colors";
 import { useAuth } from "@/app/_layout";
 import { supabase } from "@/lib/supabase";
@@ -46,6 +50,10 @@ interface Offer {
   category: string;
   mediaUrl: string;
   venueName: string;
+  venueLogoUrl?: string;
+  venueAddress?: string;
+  venueLat?: number | null;
+  venueLon?: number | null;
   offerValue: string;
   slotsRemaining: number;
   slotsTotal: number;
@@ -70,6 +78,10 @@ function mapOfferFromDB(item: any): Offer {
       CATEGORY_FALLBACK_IMAGES.default,
     venueName: item.venues?.name ?? "Venue",
     offerValue: item.value_worth ?? "$0",
+    venueLogoUrl: item.venues?.logo_url ?? "",
+    venueAddress: item.venues?.address ?? "",
+    venueLat: item.venues?.latitude ?? null,
+    venueLon: item.venues?.longitude ?? null,
     slotsRemaining: (item.max_redemptions ?? 0) - (item.current_redemptions ?? 0),
     slotsTotal: item.max_redemptions ?? 0,
     status: item.is_active ? (((item.current_redemptions ?? 0) >= (item.max_redemptions ?? 999)) ? "full" : "open") : "expired",
@@ -82,6 +94,8 @@ export default function ExploreScreen() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ category?: string }>();
   const { colors } = useTheme();
+  const currency = useCurrency();
+  const bookmarkStore = useBookmarkStore();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -110,7 +124,7 @@ export default function ExploreScreen() {
         .select(`
           id, title, category, media_url, value_worth,
           max_redemptions, current_redemptions, is_active,
-          venues!inner(id, name, address, city)
+          venues(id, name, address, city)
         `)
         .eq("is_active", true)
         .order("created_at", { ascending: false });
@@ -133,7 +147,11 @@ export default function ExploreScreen() {
   const filteredOffers = useMemo(() => {
     let results = allOffers ?? [];
     if (selectedCategory) {
-      results = results.filter((o: Offer) => o.category === selectedCategory);
+      results = results.filter((o: Offer) => {
+        if (o.category === selectedCategory) return true;
+        const slug = o.category.toLowerCase().replace(/[\s&]+/g, "_").replace(/[^a-z0-9_]/g, "");
+        return slug === selectedCategory;
+      });
     }
     if (debouncedSearch.trim()) {
       const q = debouncedSearch.toLowerCase();
@@ -210,15 +228,9 @@ export default function ExploreScreen() {
         />
       </View>
 
-      {/* Map placeholder */}
+      {/* Map View */}
       {viewMode === "map" ? (
-        <View style={styles.mapPlaceholder}>
-          <MapPin size={48} color={colors.accent} />
-          <Text style={styles.mapPlaceholderTitle}>Map View</Text>
-          <Text style={styles.mapPlaceholderText}>
-            Explore offers near you on an interactive map.
-          </Text>
-        </View>
+        <MapExploreView offers={filteredOffers} colors={colors} onOfferPress={handleOfferPress} />
       ) : isLoading ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color={colors.accent} />
@@ -249,6 +261,8 @@ export default function ExploreScreen() {
 }
 
 function OfferGridCard({ offer, colors, onPress }: { offer: Offer; colors: ThemeColors; onPress: () => void }) {
+  const bookmarkStore = useBookmarkStore();
+  const isSaved = bookmarkStore.isSaved(offer.id);
   const statusColor =
     offer.status === "open" ? colors.statusOpen
     : offer.status === "full" ? colors.statusFull
@@ -263,6 +277,13 @@ function OfferGridCard({ offer, colors, onPress }: { offer: Offer; colors: Theme
     <Pressable style={[gridStyles.gridCard, { width: GRID_CARD_WIDTH }]} onPress={onPress}>
       <View style={gridStyles.gridImageContainer}>
         <Image source={{ uri: offer.mediaUrl }} style={gridStyles.gridImage} resizeMode="cover" />
+        <Pressable
+          style={gridStyles.gridHeart}
+          onPress={(e) => { e.stopPropagation(); bookmarkStore.toggle(offer.id); }}
+          hitSlop={8}
+        >
+          <Heart size={14} color={isSaved ? colors.red : "#FFF"} fill={isSaved ? colors.red : "transparent"} />
+        </Pressable>
         <View style={[gridStyles.gridBadge, { backgroundColor: statusColor }]}>
           <Text style={gridStyles.gridBadgeText}>{statusLabel}</Text>
         </View>
@@ -271,7 +292,7 @@ function OfferGridCard({ offer, colors, onPress }: { offer: Offer; colors: Theme
         <Text style={gridStyles.gridCategory} numberOfLines={1}>{offer.category}</Text>
         <Text style={gridStyles.gridTitle} numberOfLines={2}>{offer.title}</Text>
         <View style={gridStyles.gridFooter}>
-          <Text style={gridStyles.gridValue}>{offer.offerValue}</Text>
+          <Text style={gridStyles.gridValue}>{parseFloat(offer.offerValue.replace(/^[^0-9]*/, ""))?.toLocaleString() || offer.offerValue}</Text>
           <Text style={gridStyles.gridSlots}>{offer.slotsRemaining} left</Text>
         </View>
       </View>
@@ -296,6 +317,8 @@ function createStyles(colors: ThemeColors) {
     mapPlaceholder: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, paddingHorizontal: 40 },
     mapPlaceholderTitle: { fontSize: 18, fontWeight: "700", color: colors.textSecondary },
     mapPlaceholderText: { fontSize: 14, color: colors.textMuted, textAlign: "center" },
+    mapContainer: { flex: 1 },
+    mapWebView: { flex: 1 },
     listContent: { paddingHorizontal: 16, paddingBottom: 100, paddingTop: 4 },
     gridRow: { gap: CARD_GAP, marginBottom: CARD_GAP },
     emptyState: { alignItems: "center", justifyContent: "center", paddingVertical: 80, paddingHorizontal: 40, gap: 12 },
@@ -304,11 +327,79 @@ function createStyles(colors: ThemeColors) {
   });
 }
 
+function MapExploreView({ offers, colors, onOfferPress }: { offers: Offer[]; colors: ThemeColors; onOfferPress: (id: string) => void }) {
+  const pinsWithCoords = offers.filter((o: any) => o.venueLat && o.venueLon);
+  
+  if (pinsWithCoords.length === 0) {
+    return (
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12, paddingHorizontal: 40 }}>
+        <MapPin size={48} color={colors.textMuted} />
+        <Text style={{ fontSize: 18, fontWeight: "700", color: colors.textSecondary }}>No offers with locations yet</Text>
+        <Text style={{ fontSize: 14, color: colors.textMuted, textAlign: "center" }}>Venues need to add their coordinates for the map view.</Text>
+      </View>
+    );
+  }
+
+  const pinsJson = JSON.stringify(pinsWithCoords.map((o: any) => ({
+    id: o.id,
+    title: o.title,
+    venue: o.venueName,
+    value: o.offerValue,
+    lat: o.venueLat,
+    lon: o.venueLon,
+    status: o.status,
+  })));
+
+  const center = pinsWithCoords[0] as any;
+  const isDark = colors.background === "#0F0F0F";
+  const accentHex = colors.accent;
+  const bgHex = isDark ? "#1A1A1A" : "#FFFFFF";
+  const textHex = isDark ? "#FFFFFF" : "#1A1A1A";
+
+  const html = `<!DOCTYPE html>
+<html><head>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>body{margin:0;padding:0}#map{width:100vw;height:100vh}.leaflet-popup-content{font-family:-apple-system,sans-serif;font-size:14px}</style>
+</head><body><div id="map"></div>
+<script>
+const pins = ${pinsJson};
+const map = L.map('map').setView([${center.venueLat}, ${center.venueLon}], 12);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/${isDark ? 'dark_all' : 'light_all'}/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'
+}).addTo(map);
+const greenIcon = L.icon({iconUrl:'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><circle cx="16" cy="14" r="10" fill="${accentHex}" stroke="white" stroke-width="2"/><polygon points="16,28 10,22 22,22" fill="${accentHex}"/></svg>',iconSize:[32,32],popupAnchor:[0,-16]});
+pins.forEach(p=>{
+  const marker=L.marker([p.lat,p.lon],{icon:greenIcon}).addTo(map);
+  marker.bindPopup('<b>'+p.title+'</b><br/>'+p.venue+'<br/>'+p.value);
+  marker.on('click',()=>{window.ReactNativeWebView?.postMessage(JSON.stringify({offerId:p.id}));});
+});
+</script></body></html>`;
+
+  return (
+    <View style={{ flex: 1 }}>
+      <WebView
+        source={{ html }}
+        style={{ flex: 1 }}
+        javaScriptEnabled
+        onMessage={(e) => {
+          try {
+            const msg = JSON.parse(e.nativeEvent.data);
+            if (msg.offerId) onOfferPress(msg.offerId);
+          } catch {}
+        }}
+      />
+    </View>
+  );
+}
+
 function createGridStyles(colors: ThemeColors) {
   return StyleSheet.create({
     gridCard: { backgroundColor: colors.card, borderRadius: 14, overflow: "hidden", borderWidth: 1, borderColor: colors.cardBorder },
     gridImageContainer: { position: "relative", height: 120 },
     gridImage: { width: "100%", height: "100%" },
+    gridHeart: { position: "absolute", top: 8, left: 8, zIndex: 5, width: 28, height: 28, borderRadius: 14, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center" },
     gridBadge: { position: "absolute", top: 8, right: 8, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
     gridBadgeText: { fontSize: 10, fontWeight: "700", color: "#FFF" },
     gridCardContent: { padding: 10, gap: 4 },

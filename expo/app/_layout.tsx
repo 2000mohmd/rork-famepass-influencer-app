@@ -7,6 +7,7 @@ import { ActivityIndicator, View } from "react-native";
 
 import { supabase } from "@/lib/supabase";
 import { useTheme } from "@/hooks/useTheme";
+import { useCurrencyStore } from "@/store/currencyStore";
 import type { ThemeColors } from "@/constants/colors";
 
 const queryClient = new QueryClient();
@@ -45,6 +46,20 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
   const router = useRouter();
 
   useEffect(() => {
+    // Fetch app settings (currency) on mount
+    (async () => {
+      try {
+        const { data: settingsData } = await supabase
+          .from("app_settings")
+          .select("key, value");
+        if (settingsData) {
+          const map: Record<string, string> = {};
+          (settingsData as any[]).forEach((s) => { map[s.key] = s.value; });
+          useCurrencyStore.getState().setSettings(map);
+        }
+      } catch {}
+    })();
+
     supabase.auth.getSession().then(({ data: { session: s } }) => {
       setSession(s);
       if (s) {
@@ -98,7 +113,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       const { data } = await supabase
         .from("profiles")
         .select("*")
-        .eq("id", userId)
+        .eq("user_id", userId)
         .single();
 
       if (data) {
@@ -242,6 +257,16 @@ export default function RootLayout() {
                   headerShown: true,
                   headerTitle: "",
                   headerTransparent: true,
+                  headerTintColor: colors.text,
+                  animation: "slide_from_right",
+                }}
+              />
+              <Stack.Screen
+                name="booking/[id]"
+                options={{
+                  headerShown: true,
+                  headerTitle: "Booking Details",
+                  headerStyle: { backgroundColor: colors.background },
                   headerTintColor: colors.text,
                   animation: "slide_from_right",
                 }}

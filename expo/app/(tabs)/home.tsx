@@ -3,6 +3,7 @@ import {
   ArrowRight,
   Calendar,
   Clock,
+  Heart,
   MapPin,
   Star,
   TrendingUp,
@@ -23,6 +24,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
 
 import { useTheme } from "@/hooks/useTheme";
+import { useCurrency } from "@/hooks/useCurrency";
+import { useBookmarkStore } from "@/store/bookmarkStore";
 import type { ThemeColors } from "@/constants/colors";
 import { useAuth } from "@/app/_layout";
 import { supabase } from "@/lib/supabase";
@@ -85,19 +88,27 @@ function timeGreeting(): string {
   return "Good evening";
 }
 
+/** Resolve a storage path to a public URL, handling nulls and full URLs */
+function resolveStorageUrl(bucket: string, path: string | null): string | null {
+  if (!path) return null;
+  if (path.startsWith("http")) return path;
+  const { data } = supabase.storage.from(bucket).getPublicUrl(path);
+  return data.publicUrl;
+}
+
 function mapOfferFromDB(item: any): Offer {
   return {
     id: item.id,
     title: item.title ?? "",
     description: item.description ?? "",
     category: item.category ?? "food_drink",
-    mediaUrl: item.media_url ||
+    mediaUrl: resolveStorageUrl("offers", item.media_url) ||
       CATEGORY_FALLBACK_IMAGES[item.category] ||
       CATEGORY_FALLBACK_IMAGES.default,
     mediaType: item.media_type ?? "image",
     venueId: item.venue_id ?? "",
     venueName: item.venues?.name ?? "Venue",
-    venueLogoUrl: item.venues?.logo_url ?? "",
+    venueLogoUrl: resolveStorageUrl("venues", item.venues?.logo_url) ?? "",
     venueVerified: false,
     minFollowers: item.min_followers ?? 0,
     minEngagementRate: item.min_engagement_rate ?? 0,
@@ -132,7 +143,7 @@ export default function HomeScreen() {
           max_redemptions, current_redemptions, is_active, end_date,
           offer_type, event_date, event_time, media_type, platforms,
           min_followers, min_engagement_rate, type,
-          venues!inner(id, name, logo_url, address, city)
+          venues(id, name, logo_url, address, city)
         `)
         .eq("is_active", true)
         .order("created_at", { ascending: false })
@@ -152,7 +163,7 @@ export default function HomeScreen() {
           max_redemptions, current_redemptions, is_active, end_date,
           offer_type, event_date, event_time, media_type, platforms,
           min_followers, min_engagement_rate, type,
-          venues!inner(id, name, logo_url, address, city)
+          venues(id, name, logo_url, address, city)
         `)
         .eq("is_active", true)
         .limit(5)
@@ -301,6 +312,9 @@ export default function HomeScreen() {
 }
 
 function OfferCard({ offer, colors, onPress }: { offer: Offer; colors: ThemeColors; onPress: () => void }) {
+  const currency = useCurrency();
+  const bookmarkStore = useBookmarkStore();
+  const isSaved = bookmarkStore.isSaved(offer.id);
   const statusColor =
     offer.status === "open" ? colors.statusOpen
     : offer.status === "full" ? colors.statusFull
@@ -316,6 +330,13 @@ function OfferCard({ offer, colors, onPress }: { offer: Offer; colors: ThemeColo
       <View style={cardStyles.offerImageContainer}>
         <Image source={{ uri: offer.mediaUrl }} style={cardStyles.offerImage} resizeMode="cover" />
         <View style={cardStyles.offerImageOverlay} />
+        <Pressable
+          style={cardStyles.heartButton}
+          onPress={(e) => { e.stopPropagation(); bookmarkStore.toggle(offer.id); }}
+          hitSlop={8}
+        >
+          <Heart size={18} color={isSaved ? colors.red : "#FFF"} fill={isSaved ? colors.red : "transparent"} />
+        </Pressable>
         <View style={[cardStyles.statusBadge, { backgroundColor: statusColor + "20", borderColor: statusColor }]}>
           <Text style={[cardStyles.statusBadgeText, { color: statusColor }]}>{statusLabel}</Text>
         </View>
@@ -345,7 +366,7 @@ function OfferCard({ offer, colors, onPress }: { offer: Offer; colors: ThemeColo
           <Text style={cardStyles.detailText} numberOfLines={1}>{offer.location.city}</Text>
         </View>
         <View style={cardStyles.offerFooter}>
-          <Text style={cardStyles.offerValue}>{offer.offerValue}</Text>
+          <Text style={cardStyles.offerValue}>{currency} {parseFloat(offer.offerValue.replace(/^[^0-9]*/, ""))?.toLocaleString() || offer.offerValue}</Text>
           <Text style={cardStyles.slotsText}>{offer.slotsRemaining} / {offer.slotsTotal} slots</Text>
         </View>
       </View>
@@ -418,6 +439,7 @@ function createOfferCardStyles(colors: ThemeColors) {
     detailRow: { flexDirection: "row", alignItems: "center", gap: 6 },
     detailText: { fontSize: 13, color: colors.textSecondary, flex: 1 },
     offerFooter: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 4, paddingTop: 8, borderTopWidth: 1, borderTopColor: colors.cardBorder },
+    heartButton: { position: "absolute", bottom: 10, left: 10, zIndex: 5, width: 32, height: 32, borderRadius: 16, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center" },
     offerValue: { fontSize: 16, fontWeight: "700", color: colors.accent },
     slotsText: { fontSize: 12, color: colors.textMuted, fontWeight: "500" },
   });

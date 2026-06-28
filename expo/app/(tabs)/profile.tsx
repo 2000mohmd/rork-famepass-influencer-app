@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
 
 import { useTheme } from "@/hooks/useTheme";
+import { useCurrency } from "@/hooks/useCurrency";
 import type { ThemeColors } from "@/constants/colors";
 import { useAuth } from "@/app/_layout";
 import { supabase } from "@/lib/supabase";
@@ -28,6 +29,7 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const { profile, session } = useAuth();
   const { colors } = useTheme();
+  const currency = useCurrency();
   const [avatarError, setAvatarError] = useState(false);
 
   const { data: bookingCounts } = useQuery({
@@ -161,7 +163,7 @@ export default function ProfileScreen() {
             <Pressable style={styles.settingsItem} onPress={() => router.push("/(tabs)/earnings")}>
               <View style={styles.settingsItemLeft}>
                 <Wallet size={18} color={colors.accentLight} />
-                <Text style={styles.settingsItemText}>Earnings{(walletBalance ?? 0) > 0 ? ` · AED ${(walletBalance ?? 0).toLocaleString()}` : ""}</Text>
+                <Text style={styles.settingsItemText}>Earnings{(walletBalance ?? 0) > 0 ? ` · ${currency} ${(walletBalance ?? 0).toLocaleString()}` : ""}</Text>
               </View>
               <ChevronRight size={16} color={colors.textMuted} />
             </Pressable>

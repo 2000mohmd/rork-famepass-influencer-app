@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { useTheme } from "@/hooks/useTheme";
+import { useCurrency } from "@/hooks/useCurrency";
 import type { ThemeColors } from "@/constants/colors";
 import { useAuth } from "@/app/_layout";
 import { supabase } from "@/lib/supabase";
@@ -49,6 +50,7 @@ export default function InvitationsScreen() {
   const { session } = useAuth();
   const queryClient = useQueryClient();
   const { colors } = useTheme();
+  const currency = useCurrency();
   const [activeTab, setActiveTab] = useState<InviteTab>("pending");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 

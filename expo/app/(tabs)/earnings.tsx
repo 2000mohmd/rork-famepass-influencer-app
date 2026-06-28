@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { useTheme } from "@/hooks/useTheme";
+import { useCurrency } from "@/hooks/useCurrency";
 import type { ThemeColors } from "@/constants/colors";
 import { useAuth } from "@/app/_layout";
 import { supabase } from "@/lib/supabase";
@@ -36,6 +37,7 @@ export default function EarningsScreen() {
   const { session } = useAuth();
   const queryClient = useQueryClient();
   const { colors } = useTheme();
+  const currency = useCurrency();
   const [withdrawAmount, setWithdrawAmount] = useState("");
   const [showWithdraw, setShowWithdraw] = useState(false);
   const [withdrawError, setWithdrawError] = useState<string | null>(null);
@@ -142,7 +144,7 @@ export default function EarningsScreen() {
                 <ActivityIndicator size="small" color={colors.accent} />
               ) : (
                 <Text style={styles.balanceValue}>
-                  AED {safeBalance.toLocaleString()}
+                  {currency} {safeBalance.toLocaleString()}
                 </Text>
               )}
               <View style={styles.balanceActions}>
@@ -152,7 +154,7 @@ export default function EarningsScreen() {
                     setWithdrawError(null);
                     setShowWithdraw(true);
                   }}
-                  disabled={safeBalance === 0}
+  
                 >
                   <ArrowDownToLine size={16} color={colors.background} />
                   <Text style={styles.withdrawButtonText}>Withdraw</Text>
@@ -164,7 +166,7 @@ export default function EarningsScreen() {
               <View style={styles.pendingBanner}>
                 <Clock size={16} color={colors.orange} />
                 <Text style={styles.pendingText}>
-                  Pending withdrawal: AED {pendingWithdrawal.amount?.toLocaleString()}
+                  Pending withdrawal: {currency} {pendingWithdrawal.amount?.toLocaleString()}
                 </Text>
               </View>
             )}
@@ -172,7 +174,7 @@ export default function EarningsScreen() {
             {/* Total Earnings */}
             <View style={styles.totalRow}>
               <Text style={styles.totalLabel}>Total Earnings</Text>
-              <Text style={styles.totalValue}>AED {totalEarnings.toLocaleString()}</Text>
+              <Text style={styles.totalValue}>{currency} {totalEarnings.toLocaleString()}</Text>
             </View>
 
             <Text style={styles.sectionTitle}>Earnings History</Text>
@@ -203,7 +205,7 @@ export default function EarningsScreen() {
               </Text>
             </View>
             <View style={styles.earningRight}>
-              <Text style={styles.earningAmount}>+ AED {item.amount?.toLocaleString()}</Text>
+              <Text style={styles.earningAmount}>+ {currency} {item.amount?.toLocaleString()}</Text>
               {item.status && (
                 <View style={[styles.earningStatus, {
                   backgroundColor: item.status === "completed" ? colors.green + "18" : colors.orange + "18",
@@ -231,11 +233,17 @@ export default function EarningsScreen() {
           <Pressable style={styles.modalContent} onPress={() => {}}>
             <Text style={styles.modalTitle}>Withdraw Funds</Text>
             <Text style={styles.modalSubtitle}>
-              Available: AED {safeBalance.toLocaleString()}
+              Available: {currency} {safeBalance.toLocaleString()}
             </Text>
 
+            {safeBalance === 0 && (
+              <View style={[styles.pendingBanner, { backgroundColor: colors.textMuted + "18", borderColor: colors.textMuted + "25" }]}>
+                <Text style={{ fontSize: 13, color: colors.textSecondary, fontWeight: "500" }}>No balance available yet. Complete offers to start earning.</Text>
+              </View>
+            )}
+
             <View style={styles.modalInputGroup}>
-              <Text style={styles.modalLabel}>Amount (AED)</Text>
+              <Text style={styles.modalLabel}>Amount ({currency})</Text>
               <TextInput
                 ref={inputRef}
                 style={styles.modalInput}

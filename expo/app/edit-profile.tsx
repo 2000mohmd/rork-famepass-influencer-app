@@ -58,7 +58,7 @@ export default function EditProfileScreen() {
           tiktok_handle: tiktok.trim(),
           followers_count: Number(followers) || 0,
         })
-        .eq("id", profile?.id);
+        .eq("user_id", profile?.id);
 
       if (updateError) {
         setError(updateError.message);
