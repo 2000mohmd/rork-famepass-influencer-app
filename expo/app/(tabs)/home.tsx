@@ -101,9 +101,10 @@ function mapOfferFromDB(item: any): Offer {
     id: item.id,
     title: item.title ?? "",
     description: item.description ?? "",
-    category: item.category ?? "food_drink",
+    category: item.categories?.name ?? "",
     mediaUrl: resolveStorageUrl("offers", item.media_url) ||
-      CATEGORY_FALLBACK_IMAGES[item.category] ||
+      CATEGORY_FALLBACK_IMAGES[item.categories?.id] ||
+      (item.categories?.name ? CATEGORY_FALLBACK_IMAGES[item.categories.name.toLowerCase().replace(/[\s&]+/g, '_')] : undefined) ||
       CATEGORY_FALLBACK_IMAGES.default,
     mediaType: item.media_type ?? "image",
     venueId: item.venue_id ?? "",
@@ -139,11 +140,12 @@ export default function HomeScreen() {
       const { data, error } = await supabase
         .from("offers")
         .select(`
-          id, title, description, category, media_url, value_worth,
+          id, title, description, category_id, media_url, value_worth,
           max_redemptions, current_redemptions, is_active, end_date,
           offer_type, event_date, event_time, media_type, platforms,
           min_followers, min_engagement_rate, type,
-          venues(id, name, logo_url, address, city)
+          venues(id, name, logo_url, address, city),
+          categories(id, name, color)
         `)
         .eq("is_active", true)
         .order("created_at", { ascending: false })
@@ -159,11 +161,12 @@ export default function HomeScreen() {
       const { data } = await supabase
         .from("events")
         .select(`
-          id, title, description, category, media_url, value_worth,
+          id, title, description, category_id, media_url, value_worth,
           max_redemptions, current_redemptions, is_active, end_date,
           offer_type, event_date, event_time, media_type, platforms,
           min_followers, min_engagement_rate, type,
-          venues(id, name, logo_url, address, city)
+          venues(id, name, logo_url, address, city),
+          categories(id, name, color)
         `)
         .eq("is_active", true)
         .limit(5)

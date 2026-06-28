@@ -72,9 +72,10 @@ function mapOfferFromDB(item: any): Offer {
   return {
     id: item.id,
     title: item.title ?? "",
-    category: item.category ?? "food_drink",
+    category: item.categories?.name ?? "",
     mediaUrl: item.media_url ||
-      CATEGORY_FALLBACK_IMAGES[item.category] ||
+      CATEGORY_FALLBACK_IMAGES[item.categories?.id] ||
+      (item.categories?.name ? CATEGORY_FALLBACK_IMAGES[item.categories.name.toLowerCase().replace(/[\s&]+/g, '_')] : undefined) ||
       CATEGORY_FALLBACK_IMAGES.default,
     venueName: item.venues?.name ?? "Venue",
     offerValue: item.value_worth ?? "$0",
@@ -122,9 +123,10 @@ export default function ExploreScreen() {
       const { data } = await supabase
         .from("offers")
         .select(`
-          id, title, category, media_url, value_worth,
+          id, title, category_id, media_url, value_worth,
           max_redemptions, current_redemptions, is_active,
-          venues(id, name, address, city)
+          venues(id, name, address, city),
+          categories(id, name, color)
         `)
         .eq("is_active", true)
         .order("created_at", { ascending: false });

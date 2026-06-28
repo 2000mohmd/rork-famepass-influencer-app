@@ -102,9 +102,10 @@ function mapOfferFromDB(item: any): Offer {
     id: item.id,
     title: item.title ?? "",
     description: item.description ?? "",
-    category: item.category ?? "food_drink",
+    category: item.categories?.name ?? "",
     mediaUrl: item.media_url ||
-      CATEGORY_FALLBACK_IMAGES[item.category] ||
+      CATEGORY_FALLBACK_IMAGES[item.categories?.id] ||
+      (item.categories?.name ? CATEGORY_FALLBACK_IMAGES[item.categories.name.toLowerCase().replace(/[\s&]+/g, '_')] : undefined) ||
       CATEGORY_FALLBACK_IMAGES.default,
     mediaType: item.media_type ?? "image",
     venueId: item.venue_id ?? "",
@@ -180,7 +181,15 @@ export default function OfferDetailScreen() {
       if (!id) return null;
       const { data } = await supabase
         .from("offers")
-        .select("*, venues:venue_id(name, logo_url, address, city)")
+        .select(`
+          id, title, description, category_id, media_url, media_type,
+          value_worth, max_redemptions, current_redemptions, is_active,
+          end_date, platforms, min_followers, min_engagement_rate,
+          post_type, number_of_posts, caption_requirements,
+          type, event_date, event_time,
+          venues:venue_id(name, logo_url, address, city),
+          categories(id, name, color)
+        `)
         .eq("id", id)
         .single();
       if (!data) return null;
