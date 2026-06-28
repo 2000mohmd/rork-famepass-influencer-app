@@ -2,11 +2,12 @@ import createContextHook from "@nkzw/create-context-hook";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
 
-import Colors from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
+import { useTheme } from "@/hooks/useTheme";
+import type { ThemeColors } from "@/constants/colors";
 
 const queryClient = new QueryClient();
 
@@ -27,6 +28,14 @@ type AuthState = {
   isLoading: boolean;
   isInfluencer: boolean;
 };
+
+/** Resolve a Supabase Storage path to a public URL, or return the raw URL. */
+function getPublicUrl(path: string | null): string | null {
+  if (!path) return null;
+  if (path.startsWith("http")) return path;
+  const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+  return data.publicUrl;
+}
 
 export const [AuthProvider, useAuth] = createContextHook(() => {
   const [session, setSession] = useState<any | null>(null);
@@ -93,7 +102,10 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         .single();
 
       if (data) {
-        setProfile(data as UserProfile);
+        setProfile({
+          ...(data as UserProfile),
+          avatar_url: getPublicUrl(data.avatar_url),
+        });
       }
     } catch {
       // Profile might not exist yet
@@ -124,6 +136,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const { session, isLoading, isInfluencer } = useAuth();
   const segments = useSegments();
   const router = useRouter();
+  const { colors } = useTheme();
 
   useEffect(() => {
     if (isLoading) return;
@@ -142,12 +155,12 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       <View
         style={{
           flex: 1,
-          backgroundColor: Colors.dark.background,
+          backgroundColor: colors.background,
           alignItems: "center",
           justifyContent: "center",
         }}
       >
-        <ActivityIndicator size="large" color={Colors.dark.accent} />
+        <ActivityIndicator size="large" color={colors.accent} />
       </View>
     );
   }
@@ -156,16 +169,18 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 }
 
 export default function RootLayout() {
+  const { isDark, colors } = useTheme();
+
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <AuthGuard>
-          <View style={{ flex: 1, backgroundColor: Colors.dark.background }}>
-            <StatusBar style="light" />
+          <View style={{ flex: 1, backgroundColor: colors.background }}>
+            <StatusBar style={isDark ? "light" : "dark"} />
             <Stack
               screenOptions={{
                 headerShown: false,
-                contentStyle: { backgroundColor: Colors.dark.background },
+                contentStyle: { backgroundColor: colors.background },
                 animation: "slide_from_right",
               }}
             >
@@ -177,7 +192,7 @@ export default function RootLayout() {
                   headerShown: true,
                   headerTitle: "",
                   headerTransparent: true,
-                  headerTintColor: Colors.dark.text,
+                  headerTintColor: colors.text,
                   animation: "slide_from_bottom",
                 }}
               />
@@ -187,7 +202,7 @@ export default function RootLayout() {
                   headerShown: true,
                   headerTitle: "",
                   headerTransparent: true,
-                  headerTintColor: Colors.dark.text,
+                  headerTintColor: colors.text,
                   animation: "slide_from_right",
                 }}
               />
@@ -197,7 +212,7 @@ export default function RootLayout() {
                   headerShown: true,
                   headerTitle: "",
                   headerTransparent: true,
-                  headerTintColor: Colors.dark.text,
+                  headerTintColor: colors.text,
                   animation: "slide_from_right",
                 }}
               />
@@ -206,8 +221,8 @@ export default function RootLayout() {
                 options={{
                   headerShown: true,
                   headerTitle: "Settings",
-                  headerStyle: { backgroundColor: Colors.dark.background },
-                  headerTintColor: Colors.dark.text,
+                  headerStyle: { backgroundColor: colors.background },
+                  headerTintColor: colors.text,
                   animation: "slide_from_right",
                 }}
               />
@@ -216,8 +231,8 @@ export default function RootLayout() {
                 options={{
                   headerShown: true,
                   headerTitle: "Edit Profile",
-                  headerStyle: { backgroundColor: Colors.dark.background },
-                  headerTintColor: Colors.dark.text,
+                  headerStyle: { backgroundColor: colors.background },
+                  headerTintColor: colors.text,
                   animation: "slide_from_right",
                 }}
               />
@@ -227,7 +242,7 @@ export default function RootLayout() {
                   headerShown: true,
                   headerTitle: "",
                   headerTransparent: true,
-                  headerTintColor: Colors.dark.text,
+                  headerTintColor: colors.text,
                   animation: "slide_from_right",
                 }}
               />
@@ -236,8 +251,8 @@ export default function RootLayout() {
                 options={{
                   headerShown: true,
                   headerTitle: "Connect Account",
-                  headerStyle: { backgroundColor: Colors.dark.background },
-                  headerTintColor: Colors.dark.text,
+                  headerStyle: { backgroundColor: colors.background },
+                  headerTintColor: colors.text,
                   presentation: "modal",
                   animation: "slide_from_bottom",
                 }}
@@ -248,8 +263,8 @@ export default function RootLayout() {
                   presentation: "modal",
                   headerShown: true,
                   headerTitle: "",
-                  headerStyle: { backgroundColor: Colors.dark.background },
-                  headerTintColor: Colors.dark.text,
+                  headerStyle: { backgroundColor: colors.background },
+                  headerTintColor: colors.text,
                   animation: "slide_from_bottom",
                 }}
               />

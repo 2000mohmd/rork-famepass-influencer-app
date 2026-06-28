@@ -1,11 +1,10 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
-  ArrowLeft,
   CheckCircle2,
   ExternalLink,
   ShieldCheck,
 } from "lucide-react-native";
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -16,10 +15,10 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import Colors from "@/constants/colors";
+import { useTheme } from "@/hooks/useTheme";
+import type { ThemeColors } from "@/constants/colors";
 import {
   PLATFORM_NAMES,
-  PLATFORM_ICONS,
   type Platform,
 } from "@/constants/mockData";
 
@@ -78,6 +77,7 @@ export default function ConnectSocialScreen() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ platform?: string }>();
   const platform = (params.platform as Platform) ?? "instagram";
+  const { colors } = useTheme();
 
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -86,15 +86,15 @@ export default function ConnectSocialScreen() {
 
   const handleConnect = useCallback(async () => {
     setIsConnecting(true);
-    // Simulate OAuth flow
     await new Promise((resolve) => setTimeout(resolve, 2000));
     setIsConnecting(false);
     setIsConnected(true);
-    // Simulate auto-close after success
     setTimeout(() => {
       router.back();
     }, 1500);
   }, [router]);
+
+  const styles = useMemo(() => createStyles(colors), [colors]);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -128,7 +128,7 @@ export default function ConnectSocialScreen() {
           <View style={styles.dataList}>
             {details.dataPoints.map((point, i) => (
               <View key={i} style={styles.dataPoint}>
-                <CheckCircle2 size={16} color={Colors.dark.green} />
+                <CheckCircle2 size={16} color={colors.green} />
                 <Text style={styles.dataPointText}>{point}</Text>
               </View>
             ))}
@@ -138,7 +138,7 @@ export default function ConnectSocialScreen() {
         {/* Privacy */}
         <View style={styles.privacyNote}>
           <View style={styles.privacyIconContainer}>
-            <ShieldCheck size={20} color={Colors.dark.textMuted} />
+            <ShieldCheck size={20} color={colors.textMuted} />
           </View>
           <Text style={styles.privacyTitle}>Your data is secure</Text>
           <Text style={styles.privacyText}>
@@ -153,7 +153,7 @@ export default function ConnectSocialScreen() {
       <View style={[styles.bottomBar, { paddingBottom: insets.bottom }]}>
         {isConnected ? (
           <View style={styles.successContainer}>
-            <CheckCircle2 size={20} color={Colors.dark.green} />
+            <CheckCircle2 size={20} color={colors.green} />
             <Text style={styles.successText}>
               Connected! Redirecting...
             </Text>
@@ -188,138 +188,28 @@ export default function ConnectSocialScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.dark.background,
-  },
-  scrollContent: {
-    flexGrow: 1,
-    paddingBottom: 120,
-  },
-  platformHeader: {
-    alignItems: "center",
-    paddingHorizontal: 24,
-    paddingTop: 32,
-    paddingBottom: 24,
-  },
-  platformIconLarge: {
-    width: 80,
-    height: 80,
-    borderRadius: 24,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 20,
-  },
-  platformTitle: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: Colors.dark.text,
-    marginBottom: 12,
-  },
-  platformDescription: {
-    fontSize: 15,
-    color: Colors.dark.textSecondary,
-    textAlign: "center",
-    lineHeight: 22,
-  },
-  dataSection: {
-    marginHorizontal: 20,
-    backgroundColor: Colors.dark.card,
-    borderRadius: 16,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
-  },
-  dataSectionTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: Colors.dark.textSecondary,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    marginBottom: 16,
-  },
-  dataList: {
-    gap: 14,
-  },
-  dataPoint: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  dataPointText: {
-    fontSize: 15,
-    color: Colors.dark.text,
-    fontWeight: "500",
-  },
-  privacyNote: {
-    marginHorizontal: 20,
-    marginTop: 20,
-    alignItems: "center",
-    paddingHorizontal: 12,
-  },
-  privacyIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: Colors.dark.card,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 12,
-  },
-  privacyTitle: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: Colors.dark.textSecondary,
-    marginBottom: 6,
-  },
-  privacyText: {
-    fontSize: 13,
-    color: Colors.dark.textMuted,
-    textAlign: "center",
-    lineHeight: 19,
-  },
-  bottomBar: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    backgroundColor: Colors.dark.background,
-    borderTopWidth: 1,
-    borderTopColor: Colors.dark.cardBorder,
-  },
-  connectButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 16,
-    borderRadius: 16,
-    gap: 8,
-  },
-  connectButtonDisabled: {
-    opacity: 0.7,
-  },
-  connectButtonText: {
-    fontSize: 17,
-    fontWeight: "700",
-    color: "#FFFFFF",
-  },
-  successContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 16,
-    backgroundColor: Colors.dark.green + "15",
-    borderRadius: 16,
-    gap: 8,
-    borderWidth: 1,
-    borderColor: Colors.dark.green + "30",
-  },
-  successText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: Colors.dark.green,
-  },
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
+    scrollContent: { flexGrow: 1, paddingBottom: 120 },
+    platformHeader: { alignItems: "center", paddingHorizontal: 24, paddingTop: 32, paddingBottom: 24 },
+    platformIconLarge: { width: 80, height: 80, borderRadius: 24, alignItems: "center", justifyContent: "center", marginBottom: 20 },
+    platformTitle: { fontSize: 24, fontWeight: "700", color: colors.text, marginBottom: 12 },
+    platformDescription: { fontSize: 15, color: colors.textSecondary, textAlign: "center", lineHeight: 22 },
+    dataSection: { marginHorizontal: 20, backgroundColor: colors.card, borderRadius: 16, padding: 20, borderWidth: 1, borderColor: colors.cardBorder },
+    dataSectionTitle: { fontSize: 14, fontWeight: "700", color: colors.textSecondary, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 16 },
+    dataList: { gap: 14 },
+    dataPoint: { flexDirection: "row", alignItems: "center", gap: 12 },
+    dataPointText: { fontSize: 15, color: colors.text, fontWeight: "500" },
+    privacyNote: { marginHorizontal: 20, marginTop: 20, alignItems: "center", paddingHorizontal: 12 },
+    privacyIconContainer: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.card, alignItems: "center", justifyContent: "center", marginBottom: 12 },
+    privacyTitle: { fontSize: 14, fontWeight: "600", color: colors.textSecondary, marginBottom: 6 },
+    privacyText: { fontSize: 13, color: colors.textMuted, textAlign: "center", lineHeight: 19 },
+    bottomBar: { position: "absolute", bottom: 0, left: 0, right: 0, paddingHorizontal: 20, paddingTop: 12, backgroundColor: colors.background, borderTopWidth: 1, borderTopColor: colors.cardBorder },
+    connectButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 16, borderRadius: 16, gap: 8 },
+    connectButtonDisabled: { opacity: 0.7 },
+    connectButtonText: { fontSize: 17, fontWeight: "700", color: "#FFFFFF" },
+    successContainer: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 16, backgroundColor: colors.green + "15", borderRadius: 16, gap: 8, borderWidth: 1, borderColor: colors.green + "30" },
+    successText: { fontSize: 16, fontWeight: "600", color: colors.green },
+  });
+}

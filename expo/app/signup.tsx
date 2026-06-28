@@ -4,10 +4,12 @@ import {
   ArrowRight,
   Camera,
   CheckCircle2,
+  MapPin,
 } from "lucide-react-native";
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -20,37 +22,54 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
+import * as Location from "expo-location";
+import { useQuery } from "@tanstack/react-query";
 
-import Colors from "@/constants/colors";
-import { NICHES, Niche } from "@/constants/mockData";
+import { useTheme } from "@/hooks/useTheme";
+import type { ThemeColors } from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
 
-function FamePassWordmark() {
+function FamePassWordmark({ colors }: { colors: ThemeColors }) {
   return (
     <View style={{ flexDirection: "row", alignItems: "baseline" }}>
-      <Text style={{ fontFamily: "serif", fontWeight: "700", fontSize: 24, color: Colors.dark.text }}>Fame</Text>
-      <Text style={{ fontFamily: "serif", fontStyle: "italic", fontWeight: "700", fontSize: 24, color: Colors.dark.accentLight }}>Pass</Text>
+      <Text style={{ fontFamily: "serif", fontWeight: "700", fontSize: 24, color: colors.text }}>Fame</Text>
+      <Text style={{ fontFamily: "serif", fontStyle: "italic", fontWeight: "700", fontSize: 24, color: colors.accentLight }}>Pass</Text>
     </View>
   );
 }
 
-function ProgressBar({ step, total }: { step: number; total: number }) {
+function ProgressBar({ step, total, colors }: { step: number; total: number; colors: ThemeColors }) {
   const pct = (step / total) * 100;
   return (
-    <View style={styles.progressBar}>
-      <View style={styles.progressTrack}>
-        <View style={[styles.progressFill, { width: `${pct}%` as any }]} />
+    <View style={progressStyles.progressBar}>
+      <View style={[progressStyles.progressTrack, { backgroundColor: colors.cardBorder }]}>
+        <View style={[progressStyles.progressFill, { width: `${pct}%` as any, backgroundColor: colors.accent }]} />
       </View>
-      <Text style={styles.progressText}>{step} of {total}</Text>
+      <Text style={[progressStyles.progressText, { color: colors.textMuted }]}>{step} of {total}</Text>
     </View>
   );
 }
 
+const progressStyles = StyleSheet.create({
+  progressBar: { gap: 4 },
+  progressTrack: { height: 4, borderRadius: 2, overflow: "hidden" },
+  progressFill: { height: "100%", borderRadius: 2 },
+  progressText: { fontSize: 11, fontWeight: "600", textAlign: "right" },
+});
+
 const TOTAL_STEPS = 5;
+
+interface CategoryItem {
+  id: string;
+  name: string;
+  color: string;
+  icon: string | null;
+}
 
 export default function SignupScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
 
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -65,6 +84,9 @@ export default function SignupScreen() {
   const [username, setUsername] = useState("");
   const [city, setCity] = useState("");
   const [country, setCountry] = useState("");
+  const [latitude, setLatitude] = useState<number | null>(null);
+  const [longitude, setLongitude] = useState<number | null>(null);
+  const [locationLoading, setLocationLoading] = useState(false);
   const [bio, setBio] = useState("");
 
   // Step 3
@@ -77,13 +99,26 @@ export default function SignupScreen() {
   const [followers, setFollowers] = useState("");
 
   // Step 5
-  const [selectedNiches, setSelectedNiches] = useState<Niche[]>([]);
+  const [selectedNiches, setSelectedNiches] = useState<string[]>([]);
 
-  const toggleNiche = useCallback((niche: Niche) => {
+  // Fetch categories (niches) from Supabase
+  const { data: niches, isLoading: nichesLoading } = useQuery<CategoryItem[]>({
+    queryKey: ["categories"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("categories")
+        .select("id, name, icon, color")
+        .eq("is_active", true)
+        .order("name");
+      return (data ?? []) as CategoryItem[];
+    },
+  });
+
+  const toggleNiche = useCallback((nicheId: string) => {
     setSelectedNiches((prev) =>
-      prev.includes(niche)
-        ? prev.filter((n) => n !== niche)
-        : [...prev, niche],
+      prev.includes(nicheId)
+        ? prev.filter((n) => n !== nicheId)
+        : [...prev, nicheId],
     );
   }, []);
 
@@ -99,6 +134,32 @@ export default function SignupScreen() {
     }
   }, []);
 
+  const detectLocation = useCallback(async () => {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission denied", "Please enable location access in settings.");
+      return;
+    }
+    setLocationLoading(true);
+    try {
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const [geo] = await Location.reverseGeocodeAsync({
+        latitude: loc.coords.latitude,
+        longitude: loc.coords.longitude,
+      });
+      if (geo) {
+        setCity(geo.city || geo.subregion || "");
+        setCountry(geo.country || "");
+        setLatitude(loc.coords.latitude);
+        setLongitude(loc.coords.longitude);
+      }
+    } catch {
+      Alert.alert("Error", "Could not detect location. Please type it manually.");
+    } finally {
+      setLocationLoading(false);
+    }
+  }, []);
+
   // Validation
   const isEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   const isPasswordStrong =
@@ -109,7 +170,6 @@ export default function SignupScreen() {
 
   const canStep1 = isEmailValid && isPasswordStrong;
   const canStep2 = fullName.trim().length > 0 && city.trim().length > 0 && country.trim().length > 0;
-  // Step 3 is optional (skip available)
   const hasAtLeastOneSocial =
     instagram.trim().length > 0 || tiktok.trim().length > 0;
   const canStep4 = hasAtLeastOneSocial && (followers === "" || /^\d+$/.test(followers));
@@ -119,7 +179,7 @@ export default function SignupScreen() {
     switch (step) {
       case 1: return canStep1;
       case 2: return canStep2;
-      case 3: return true; // optional
+      case 3: return true;
       case 4: return canStep4;
       case 5: return canStep5;
       default: return false;
@@ -142,6 +202,8 @@ export default function SignupScreen() {
           bio: bio.trim(),
           city: city.trim(),
           country: country.trim(),
+          latitude: latitude ?? null,
+          longitude: longitude ?? null,
           niche: selectedNiches,
           social_links: { instagram: instagram.trim(), tiktok: tiktok.trim(), youtube: youtube.trim() },
         },
@@ -152,7 +214,6 @@ export default function SignupScreen() {
         return;
       }
 
-      // Auto sign in
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password,
@@ -169,7 +230,7 @@ export default function SignupScreen() {
     } finally {
       setLoading(false);
     }
-  }, [email, password, fullName, instagram, tiktok, youtube, followers, bio, city, country, selectedNiches, router]);
+  }, [email, password, fullName, instagram, tiktok, youtube, followers, bio, city, country, latitude, longitude, selectedNiches, router]);
 
   const handleContinue = () => {
     if (step < TOTAL_STEPS) {
@@ -178,6 +239,8 @@ export default function SignupScreen() {
       handleFinalSubmit();
     }
   };
+
+  const styles = useMemo(() => createStyles(colors), [colors]);
 
   return (
     <KeyboardAvoidingView
@@ -190,13 +253,13 @@ export default function SignupScreen() {
             style={styles.backButton}
             onPress={() => (step === 1 ? router.back() : setStep(step - 1))}
           >
-            <ArrowLeft size={20} color={Colors.dark.textSecondary} />
+            <ArrowLeft size={20} color={colors.textSecondary} />
             <Text style={styles.backText}>{step === 1 ? "Back" : "Previous"}</Text>
           </Pressable>
-          <FamePassWordmark />
+          <FamePassWordmark colors={colors} />
           <View style={{ width: 60 }} />
         </View>
-        <ProgressBar step={step} total={TOTAL_STEPS} />
+        <ProgressBar step={step} total={TOTAL_STEPS} colors={colors} />
       </View>
 
       <ScrollView
@@ -222,7 +285,7 @@ export default function SignupScreen() {
               <TextInput
                 style={styles.input}
                 placeholder="you@example.com"
-                placeholderTextColor={Colors.dark.textMuted}
+                placeholderTextColor={colors.textMuted}
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -236,16 +299,16 @@ export default function SignupScreen() {
               <TextInput
                 style={styles.input}
                 placeholder="Min. 8 characters"
-                placeholderTextColor={Colors.dark.textMuted}
+                placeholderTextColor={colors.textMuted}
                 secureTextEntry
                 value={password}
                 onChangeText={setPassword}
               />
               <View style={styles.passwordHints}>
-                <HintRow done={password.length >= 8} label="8+ characters" />
-                <HintRow done={/[A-Z]/.test(password)} label="Uppercase letter" />
-                <HintRow done={/[a-z]/.test(password)} label="Lowercase letter" />
-                <HintRow done={/[0-9]/.test(password)} label="Number" />
+                <HintRow done={password.length >= 8} label="8+ characters" colors={colors} />
+                <HintRow done={/[A-Z]/.test(password)} label="Uppercase letter" colors={colors} />
+                <HintRow done={/[a-z]/.test(password)} label="Lowercase letter" colors={colors} />
+                <HintRow done={/[0-9]/.test(password)} label="Number" colors={colors} />
               </View>
             </View>
           </View>
@@ -262,7 +325,7 @@ export default function SignupScreen() {
               <TextInput
                 style={styles.input}
                 placeholder="Your full name"
-                placeholderTextColor={Colors.dark.textMuted}
+                placeholderTextColor={colors.textMuted}
                 value={fullName}
                 onChangeText={setFullName}
               />
@@ -271,11 +334,11 @@ export default function SignupScreen() {
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Username (optional)</Text>
               <View style={styles.usernameWrapper}>
-                <Text style={styles.atPrefix}>@</Text>
+                <Text style={[styles.atPrefix, { color: colors.textMuted }]}>@</Text>
                 <TextInput
                   style={[styles.input, { flex: 1, borderWidth: 0 }]}
                   placeholder="username"
-                  placeholderTextColor={Colors.dark.textMuted}
+                  placeholderTextColor={colors.textMuted}
                   autoCapitalize="none"
                   value={username}
                   onChangeText={setUsername}
@@ -283,13 +346,24 @@ export default function SignupScreen() {
               </View>
             </View>
 
+            {/* Location section */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Your Location</Text>
+              <Pressable style={styles.detectButton} onPress={detectLocation}>
+                <MapPin size={16} color={colors.accent} />
+                <Text style={styles.detectButtonText}>
+                  {locationLoading ? "Detecting..." : "Use my current location"}
+                </Text>
+              </Pressable>
+            </View>
+
             <View style={styles.row}>
               <View style={[styles.inputGroup, { flex: 1 }]}>
-                <Text style={styles.label}>Your city</Text>
+                <Text style={styles.label}>City</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="Dubai"
-                  placeholderTextColor={Colors.dark.textMuted}
+                  placeholder="e.g. Dubai, Beirut"
+                  placeholderTextColor={colors.textMuted}
                   value={city}
                   onChangeText={setCity}
                 />
@@ -298,8 +372,8 @@ export default function SignupScreen() {
                 <Text style={styles.label}>Country</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="UAE"
-                  placeholderTextColor={Colors.dark.textMuted}
+                  placeholder="e.g. UAE, Lebanon"
+                  placeholderTextColor={colors.textMuted}
                   value={country}
                   onChangeText={setCountry}
                 />
@@ -311,7 +385,7 @@ export default function SignupScreen() {
               <TextInput
                 style={[styles.input, styles.textArea]}
                 placeholder="Tell venues about your content style..."
-                placeholderTextColor={Colors.dark.textMuted}
+                placeholderTextColor={colors.textMuted}
                 multiline
                 numberOfLines={3}
                 textAlignVertical="top"
@@ -333,17 +407,17 @@ export default function SignupScreen() {
                 <Image source={{ uri: avatarUri }} style={styles.avatarPreview} />
               ) : (
                 <View style={styles.avatarPlaceholder}>
-                  <Camera size={36} color={Colors.dark.textMuted} />
+                  <Camera size={36} color={colors.textMuted} />
                 </View>
               )}
               <View style={styles.avatarPickerBadge}>
-                <Camera size={14} color={Colors.dark.background} />
+                <Camera size={14} color="#FFF" />
               </View>
             </Pressable>
 
             <Pressable style={styles.skipButton} onPress={handleContinue}>
               <Text style={styles.skipText}>Skip for now</Text>
-              <ArrowRight size={16} color={Colors.dark.accentLight} />
+              <ArrowRight size={16} color={colors.accentLight} />
             </Pressable>
           </View>
         )}
@@ -359,7 +433,7 @@ export default function SignupScreen() {
               <TextInput
                 style={styles.input}
                 placeholder="@yourhandle"
-                placeholderTextColor={Colors.dark.textMuted}
+                placeholderTextColor={colors.textMuted}
                 autoCapitalize="none"
                 value={instagram}
                 onChangeText={setInstagram}
@@ -371,7 +445,7 @@ export default function SignupScreen() {
               <TextInput
                 style={styles.input}
                 placeholder="@yourhandle"
-                placeholderTextColor={Colors.dark.textMuted}
+                placeholderTextColor={colors.textMuted}
                 autoCapitalize="none"
                 value={tiktok}
                 onChangeText={setTiktok}
@@ -383,7 +457,7 @@ export default function SignupScreen() {
               <TextInput
                 style={styles.input}
                 placeholder="@yourchannel"
-                placeholderTextColor={Colors.dark.textMuted}
+                placeholderTextColor={colors.textMuted}
                 autoCapitalize="none"
                 value={youtube}
                 onChangeText={setYoutube}
@@ -395,7 +469,7 @@ export default function SignupScreen() {
               <TextInput
                 style={styles.input}
                 placeholder="e.g. 50000"
-                placeholderTextColor={Colors.dark.textMuted}
+                placeholderTextColor={colors.textMuted}
                 keyboardType="numeric"
                 value={followers}
                 onChangeText={setFollowers}
@@ -410,33 +484,37 @@ export default function SignupScreen() {
             <Text style={styles.stepTitle}>Choose your niches</Text>
             <Text style={styles.stepSubtitle}>Pick at least one category that fits your content</Text>
 
-            <View style={styles.nicheGrid}>
-              {NICHES.map((niche) => {
-                const isSelected = selectedNiches.includes(niche.key);
-                return (
-                  <Pressable
-                    key={niche.key}
-                    style={[
-                      styles.nichePill,
-                      isSelected && styles.nichePillActive,
-                    ]}
-                    onPress={() => toggleNiche(niche.key)}
-                  >
-                    <Text
+            {nichesLoading ? (
+              <ActivityIndicator color={colors.accent} style={{ marginTop: 24 }} />
+            ) : (
+              <View style={styles.nicheGrid}>
+                {(niches ?? []).map((niche) => {
+                  const isSelected = selectedNiches.includes(niche.id);
+                  return (
+                    <Pressable
+                      key={niche.id}
                       style={[
-                        styles.nichePillText,
-                        isSelected && styles.nichePillTextActive,
+                        styles.nichePill,
+                        isSelected && styles.nichePillActive,
                       ]}
+                      onPress={() => toggleNiche(niche.id)}
                     >
-                      {niche.label}
-                    </Text>
-                    {isSelected && (
-                      <CheckCircle2 size={14} color={Colors.dark.background} />
-                    )}
-                  </Pressable>
-                );
-              })}
-            </View>
+                      <Text
+                        style={[
+                          styles.nichePillText,
+                          isSelected && styles.nichePillTextActive,
+                        ]}
+                      >
+                        {niche.name}
+                      </Text>
+                      {isSelected && (
+                        <CheckCircle2 size={14} color={colors.background} />
+                      )}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
           </View>
         )}
       </ScrollView>
@@ -452,7 +530,7 @@ export default function SignupScreen() {
           disabled={!canContinue || loading}
         >
           {loading ? (
-            <ActivityIndicator size="small" color={Colors.dark.background} />
+            <ActivityIndicator size="small" color={colors.background} />
           ) : (
             <Text style={styles.ctaText}>
               {step === TOTAL_STEPS ? "Create Account" : "Continue"}
@@ -464,250 +542,58 @@ export default function SignupScreen() {
   );
 }
 
-function HintRow({ done, label }: { done: boolean; label: string }) {
+function HintRow({ done, label, colors }: { done: boolean; label: string; colors: ThemeColors }) {
   return (
-    <View style={styles.hintRow}>
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
       <CheckCircle2
         size={14}
-        color={done ? Colors.dark.green : Colors.dark.textMuted}
+        color={done ? colors.green : colors.textMuted}
       />
-      <Text
-        style={[styles.hintText, done && { color: Colors.dark.green }]}
-      >
+      <Text style={{ fontSize: 12, fontWeight: "500", color: done ? colors.green : colors.textMuted }}>
         {label}
       </Text>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.dark.background,
-  },
-  header: {
-    paddingHorizontal: 20,
-    paddingBottom: 8,
-    gap: 12,
-  },
-  headerTop: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  backButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  backText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: Colors.dark.textSecondary,
-  },
-  progressBar: {
-    gap: 4,
-  },
-  progressTrack: {
-    height: 4,
-    backgroundColor: Colors.dark.cardBorder,
-    borderRadius: 2,
-    overflow: "hidden",
-  },
-  progressFill: {
-    height: "100%",
-    backgroundColor: Colors.dark.accent,
-    borderRadius: 2,
-  },
-  progressText: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: Colors.dark.textMuted,
-    textAlign: "right",
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 20,
-    paddingTop: 12,
-    paddingBottom: 100,
-  },
-  errorBox: {
-    backgroundColor: Colors.dark.red + "18",
-    borderRadius: 12,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: Colors.dark.red + "30",
-    marginBottom: 12,
-  },
-  errorText: {
-    fontSize: 14,
-    color: Colors.dark.red,
-    fontWeight: "500",
-  },
-  stepContent: {
-    gap: 16,
-  },
-  stepTitle: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: Colors.dark.text,
-  },
-  stepSubtitle: {
-    fontSize: 15,
-    color: Colors.dark.textSecondary,
-    marginTop: -8,
-  },
-  inputGroup: {
-    gap: 6,
-  },
-  label: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: Colors.dark.textSecondary,
-    marginLeft: 4,
-  },
-  input: {
-    backgroundColor: Colors.dark.inputBackground,
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-    color: Colors.dark.text,
-    borderWidth: 1,
-    borderColor: Colors.dark.inputBorder,
-  },
-  textArea: {
-    minHeight: 90,
-    paddingTop: 14,
-  },
-  usernameWrapper: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: Colors.dark.inputBackground,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: Colors.dark.inputBorder,
-  },
-  atPrefix: {
-    fontSize: 16,
-    color: Colors.dark.textMuted,
-    paddingLeft: 16,
-    fontWeight: "600",
-  },
-  row: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  passwordHints: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
-    marginTop: 4,
-  },
-  hintRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  hintText: {
-    fontSize: 12,
-    fontWeight: "500",
-    color: Colors.dark.textMuted,
-  },
-  avatarPicker: {
-    alignSelf: "center",
-    marginTop: 8,
-  },
-  avatarPreview: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    borderWidth: 3,
-    borderColor: Colors.dark.accent,
-  },
-  avatarPlaceholder: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: Colors.dark.card,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: Colors.dark.cardBorder,
-    borderStyle: "dashed",
-  },
-  avatarPickerBadge: {
-    position: "absolute",
-    bottom: 2,
-    right: 2,
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: Colors.dark.accent,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  skipButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 12,
-  },
-  skipText: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: Colors.dark.accentLight,
-  },
-  nicheGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  nichePill: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
-    backgroundColor: Colors.dark.card,
-    borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
-    gap: 6,
-  },
-  nichePillActive: {
-    backgroundColor: Colors.dark.accent,
-    borderColor: Colors.dark.accent,
-  },
-  nichePillText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: Colors.dark.textSecondary,
-  },
-  nichePillTextActive: {
-    color: Colors.dark.background,
-  },
-  bottomBar: {
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    backgroundColor: Colors.dark.background,
-    borderTopWidth: 1,
-    borderTopColor: Colors.dark.cardBorder,
-  },
-  ctaButton: {
-    backgroundColor: Colors.dark.accent,
-    paddingVertical: 16,
-    borderRadius: 16,
-    alignItems: "center",
-  },
-  ctaDisabled: {
-    opacity: 0.4,
-  },
-  ctaText: {
-    fontSize: 17,
-    fontWeight: "700",
-    color: Colors.dark.background,
-  },
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
+    header: { paddingHorizontal: 20, paddingBottom: 8, gap: 12 },
+    headerTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+    backButton: { flexDirection: "row", alignItems: "center", gap: 4 },
+    backText: { fontSize: 14, fontWeight: "600", color: colors.textSecondary },
+    scrollView: { flex: 1 },
+    scrollContent: { padding: 20, paddingTop: 12, paddingBottom: 100 },
+    errorBox: { backgroundColor: colors.red + "18", borderRadius: 12, padding: 14, borderWidth: 1, borderColor: colors.red + "30", marginBottom: 12 },
+    errorText: { fontSize: 14, color: colors.red, fontWeight: "500" },
+    stepContent: { gap: 16 },
+    stepTitle: { fontSize: 24, fontWeight: "700", color: colors.text },
+    stepSubtitle: { fontSize: 15, color: colors.textSecondary, marginTop: -8 },
+    inputGroup: { gap: 6 },
+    label: { fontSize: 13, fontWeight: "600", color: colors.textSecondary, marginLeft: 4 },
+    input: { backgroundColor: colors.inputBackground, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, fontSize: 16, color: colors.text, borderWidth: 1, borderColor: colors.inputBorder },
+    textArea: { minHeight: 90, paddingTop: 14 },
+    usernameWrapper: { flexDirection: "row", alignItems: "center", backgroundColor: colors.inputBackground, borderRadius: 14, borderWidth: 1, borderColor: colors.inputBorder },
+    atPrefix: { fontSize: 16, paddingLeft: 16, fontWeight: "600" },
+    detectButton: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1, borderColor: colors.accent + "40", alignSelf: "flex-start" },
+    detectButtonText: { fontSize: 14, fontWeight: "600", color: colors.accent },
+    row: { flexDirection: "row", gap: 10 },
+    passwordHints: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 4 },
+    avatarPicker: { alignSelf: "center", marginTop: 8 },
+    avatarPreview: { width: 120, height: 120, borderRadius: 60, borderWidth: 3, borderColor: colors.accent },
+    avatarPlaceholder: { width: 120, height: 120, borderRadius: 60, backgroundColor: colors.card, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: colors.cardBorder, borderStyle: "dashed" },
+    avatarPickerBadge: { position: "absolute", bottom: 2, right: 2, width: 30, height: 30, borderRadius: 15, backgroundColor: colors.accent, alignItems: "center", justifyContent: "center" },
+    skipButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 12 },
+    skipText: { fontSize: 15, fontWeight: "600", color: colors.accentLight },
+    nicheGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+    nichePill: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardBorder, gap: 6 },
+    nichePillActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+    nichePillText: { fontSize: 14, fontWeight: "600", color: colors.textSecondary },
+    nichePillTextActive: { color: colors.background },
+    bottomBar: { paddingHorizontal: 20, paddingTop: 12, backgroundColor: colors.background, borderTopWidth: 1, borderTopColor: colors.cardBorder },
+    ctaButton: { backgroundColor: colors.accent, paddingVertical: 16, borderRadius: 16, alignItems: "center" },
+    ctaDisabled: { opacity: 0.4 },
+    ctaText: { fontSize: 17, fontWeight: "700", color: colors.background },
+  });
+}

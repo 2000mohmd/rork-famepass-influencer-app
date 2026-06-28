@@ -11,12 +11,33 @@ import { Platform, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
 
-import Colors from "@/constants/colors";
+import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/app/_layout";
 import { supabase } from "@/lib/supabase";
 
+const badgeStyles = StyleSheet.create({
+  badge: {
+    position: "absolute",
+    top: -6,
+    right: -10,
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 3,
+  },
+  badgeText: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: "#FFF",
+  },
+});
+
 function PendingBadge() {
   const { session } = useAuth();
+  const { colors } = useTheme();
+
   const { data: count } = useQuery({
     queryKey: ["pending-invitations-count"],
     queryFn: async () => {
@@ -35,24 +56,25 @@ function PendingBadge() {
   if (!count || count === 0) return null;
 
   return (
-    <View style={styles.badge}>
-      <Text style={styles.badgeText}>{count > 9 ? "9+" : count}</Text>
+    <View style={[badgeStyles.badge, { backgroundColor: colors.red }]}>
+      <Text style={badgeStyles.badgeText}>{count > 9 ? "9+" : count}</Text>
     </View>
   );
 }
 
 export default function TabLayout() {
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
 
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: Colors.dark.tabIconSelected,
-        tabBarInactiveTintColor: Colors.dark.tabIconDefault,
+        tabBarActiveTintColor: colors.tabIconSelected,
+        tabBarInactiveTintColor: colors.tabIconDefault,
         tabBarStyle: {
-          backgroundColor: Colors.dark.tabBar,
-          borderTopColor: Colors.dark.tabBarBorder,
+          backgroundColor: colors.tabBar,
+          borderTopColor: colors.tabBarBorder,
           borderTopWidth: 1,
           height: Platform.OS === "ios" ? 88 : 64,
           paddingBottom: Platform.OS === "ios" ? insets.bottom : 8,
@@ -122,23 +144,3 @@ export default function TabLayout() {
     </Tabs>
   );
 }
-
-const styles = StyleSheet.create({
-  badge: {
-    position: "absolute",
-    top: -6,
-    right: -10,
-    backgroundColor: Colors.dark.red,
-    borderRadius: 8,
-    minWidth: 16,
-    height: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 3,
-  },
-  badgeText: {
-    fontSize: 9,
-    fontWeight: "700",
-    color: "#FFF",
-  },
-});

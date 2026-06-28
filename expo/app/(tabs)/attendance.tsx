@@ -3,9 +3,7 @@ import {
   Calendar,
   CheckCircle2,
   ChevronRight,
-  Clock,
   KeyRound,
-  XCircle,
 } from "lucide-react-native";
 import React, { useCallback, useMemo, useState } from "react";
 import {
@@ -22,7 +20,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
-import Colors from "@/constants/colors";
+import { useTheme } from "@/hooks/useTheme";
+import type { ThemeColors } from "@/constants/colors";
 import { useAuth } from "@/app/_layout";
 import { supabase } from "@/lib/supabase";
 
@@ -60,7 +59,7 @@ const PAST_STATUSES = ["checked_in", "completed", "no_show"];
 const CANCELLED_STATUSES = ["cancelled"];
 
 function getStatusConfig(status: string) {
-  return STATUS_CONFIG[status] ?? { label: status, color: Colors.dark.textMuted };
+  return STATUS_CONFIG[status] ?? { label: status, color: "#5E5E5E" };
 }
 
 export default function AttendanceScreen() {
@@ -68,6 +67,7 @@ export default function AttendanceScreen() {
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
   const queryClient = useQueryClient();
+  const { colors } = useTheme();
   const [activeTab, setActiveTab] = useState<BookingTab>("upcoming");
   const [checkInBooking, setCheckInBooking] = useState<Booking | null>(null);
   const [otpInput, setOtpInput] = useState("");
@@ -81,8 +81,8 @@ export default function AttendanceScreen() {
         .from("bookings")
         .select(`
           *,
-          offers:offer_id (title, value_worth),
-          venues:venue_id (name, logo_url)
+          offers!inner(id, title, value_worth, offer_type),
+          venues!inner(id, name, logo_url, city)
         `)
         .eq("influencer_id", session.user.id)
         .order("created_at", { ascending: false });
@@ -144,6 +144,8 @@ export default function AttendanceScreen() {
     setCheckInBooking(booking);
   }, []);
 
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
@@ -168,7 +170,7 @@ export default function AttendanceScreen() {
 
       {isLoading ? (
         <View style={styles.center}>
-          <ActivityIndicator size="large" color={Colors.dark.accent} />
+          <ActivityIndicator size="large" color={colors.accent} />
         </View>
       ) : (
         <FlatList
@@ -179,7 +181,7 @@ export default function AttendanceScreen() {
           ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
           ListEmptyComponent={
             <View style={styles.emptyState}>
-              <Calendar size={48} color={Colors.dark.textMuted} />
+              <Calendar size={48} color={colors.textMuted} />
               <Text style={styles.emptyTitle}>No {activeTab} bookings</Text>
             </View>
           }
@@ -203,7 +205,7 @@ export default function AttendanceScreen() {
                     <Text style={styles.cardTitle} numberOfLines={2}>{item.offer_title}</Text>
                     <View style={styles.cardMeta}>
                       <View style={styles.cardDateRow}>
-                        <Calendar size={13} color={Colors.dark.textMuted} />
+                        <Calendar size={13} color={colors.textMuted} />
                         <Text style={styles.cardDate}>{new Date(item.date).toLocaleDateString()}</Text>
                       </View>
                     </View>
@@ -211,13 +213,13 @@ export default function AttendanceScreen() {
                       <Text style={styles.cardValue}>{item.value_worth}</Text>
                       {activeTab === "upcoming" && (
                         <Pressable style={styles.checkInButton} onPress={() => handleCheckIn(item)}>
-                          <KeyRound size={13} color={Colors.dark.accent} />
+                          <KeyRound size={13} color={colors.accent} />
                           <Text style={styles.checkInText}>Check In</Text>
                         </Pressable>
                       )}
                       {item.offer_id && (
                         <Pressable onPress={() => router.push(`/offer/${item.offer_id}`)}>
-                          <ChevronRight size={16} color={Colors.dark.textMuted} />
+                          <ChevronRight size={16} color={colors.textMuted} />
                         </Pressable>
                       )}
                     </View>
@@ -238,7 +240,7 @@ export default function AttendanceScreen() {
       >
         <Pressable style={styles.modalOverlay} onPress={() => setCheckInBooking(null)}>
           <Pressable style={styles.modalContent} onPress={() => {}}>
-            <KeyRound size={36} color={Colors.dark.accent} />
+            <KeyRound size={36} color={colors.accent} />
             <Text style={styles.modalTitle}>Check In</Text>
             <Text style={styles.modalSubtitle}>
               Enter the code provided by {checkInBooking?.venue_name}
@@ -247,7 +249,7 @@ export default function AttendanceScreen() {
             <TextInput
               style={styles.otpInput}
               placeholder="Enter code"
-              placeholderTextColor={Colors.dark.textMuted}
+              placeholderTextColor={colors.textMuted}
               value={otpInput}
               onChangeText={setOtpInput}
               autoCapitalize="none"
@@ -270,7 +272,7 @@ export default function AttendanceScreen() {
                 disabled={checkInMutation.isPending || !otpInput.trim()}
               >
                 {checkInMutation.isPending ? (
-                  <ActivityIndicator size="small" color={Colors.dark.background} />
+                  <ActivityIndicator size="small" color={colors.background} />
                 ) : (
                   <Text style={styles.modalSubmitText}>Submit</Text>
                 )}
@@ -283,47 +285,48 @@ export default function AttendanceScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.dark.background },
-  center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  header: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8 },
-  headerTitle: { fontSize: 28, fontWeight: "700", color: Colors.dark.text },
-  headerSubtitle: { fontSize: 14, color: Colors.dark.textSecondary, marginTop: 4 },
-  tabBar: { flexDirection: "row", marginHorizontal: 16, marginTop: 12, marginBottom: 8, backgroundColor: Colors.dark.card, borderRadius: 14, padding: 4, borderWidth: 1, borderColor: Colors.dark.cardBorder },
-  tab: { flex: 1, paddingVertical: 10, alignItems: "center", borderRadius: 11 },
-  tabActive: { backgroundColor: Colors.dark.accent + "18" },
-  tabText: { fontSize: 14, fontWeight: "600", color: Colors.dark.textSecondary },
-  tabTextActive: { color: Colors.dark.accent },
-  listContent: { padding: 16, paddingBottom: 100 },
-  card: { backgroundColor: Colors.dark.card, borderRadius: 14, overflow: "hidden", borderWidth: 1, borderColor: Colors.dark.cardBorder },
-  cardTop: { flexDirection: "row" },
-  cardImage: { width: 110, minHeight: 130, backgroundColor: Colors.dark.surfaceElevated },
-  cardImagePlc: {},
-  cardContent: { flex: 1, padding: 12, justifyContent: "space-between" },
-  cardTopRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  cardVenue: { fontSize: 13, fontWeight: "600", color: Colors.dark.textSecondary, flex: 1, marginRight: 8 },
-  statusChip: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  statusChipText: { fontSize: 10, fontWeight: "700" },
-  cardTitle: { fontSize: 14, fontWeight: "600", color: Colors.dark.text, lineHeight: 18, marginTop: 4 },
-  cardMeta: { marginTop: 6, gap: 4 },
-  cardDateRow: { flexDirection: "row", alignItems: "center", gap: 5 },
-  cardDate: { fontSize: 12, color: Colors.dark.textMuted },
-  cardFooter: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: Colors.dark.cardBorder },
-  cardValue: { fontSize: 15, fontWeight: "700", color: Colors.dark.accent },
-  checkInButton: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: Colors.dark.accent + "12" },
-  checkInText: { fontSize: 12, fontWeight: "600", color: Colors.dark.accent },
-  emptyState: { alignItems: "center", justifyContent: "center", paddingVertical: 80, gap: 12 },
-  emptyTitle: { fontSize: 16, fontWeight: "600", color: Colors.dark.textSecondary },
-  // Modal
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.7)", justifyContent: "center", alignItems: "center", padding: 32 },
-  modalContent: { backgroundColor: Colors.dark.card, borderRadius: 20, padding: 24, width: "100%", maxWidth: 340, alignItems: "center", borderWidth: 1, borderColor: Colors.dark.cardBorder, gap: 14 },
-  modalTitle: { fontSize: 20, fontWeight: "700", color: Colors.dark.text },
-  modalSubtitle: { fontSize: 14, color: Colors.dark.textSecondary, textAlign: "center" },
-  otpInput: { width: "100%", backgroundColor: Colors.dark.inputBackground, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, fontSize: 18, fontWeight: "700", color: Colors.dark.text, borderWidth: 1, borderColor: Colors.dark.inputBorder, textAlign: "center" },
-  otpError: { fontSize: 13, color: Colors.dark.red, fontWeight: "500" },
-  modalActions: { flexDirection: "row", gap: 10, width: "100%", marginTop: 4 },
-  modalCancel: { flex: 1, alignItems: "center", paddingVertical: 14, borderRadius: 14, borderWidth: 1, borderColor: Colors.dark.cardBorder },
-  modalCancelText: { fontSize: 15, fontWeight: "600", color: Colors.dark.textSecondary },
-  modalSubmit: { flex: 1, alignItems: "center", backgroundColor: Colors.dark.accent, paddingVertical: 14, borderRadius: 14 },
-  modalSubmitText: { fontSize: 15, fontWeight: "700", color: Colors.dark.background },
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
+    center: { flex: 1, alignItems: "center", justifyContent: "center" },
+    header: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8 },
+    headerTitle: { fontSize: 28, fontWeight: "700", color: colors.text },
+    headerSubtitle: { fontSize: 14, color: colors.textSecondary, marginTop: 4 },
+    tabBar: { flexDirection: "row", marginHorizontal: 16, marginTop: 12, marginBottom: 8, backgroundColor: colors.card, borderRadius: 14, padding: 4, borderWidth: 1, borderColor: colors.cardBorder },
+    tab: { flex: 1, paddingVertical: 10, alignItems: "center", borderRadius: 11 },
+    tabActive: { backgroundColor: colors.accent + "18" },
+    tabText: { fontSize: 14, fontWeight: "600", color: colors.textSecondary },
+    tabTextActive: { color: colors.accent },
+    listContent: { padding: 16, paddingBottom: 100 },
+    card: { backgroundColor: colors.card, borderRadius: 14, overflow: "hidden", borderWidth: 1, borderColor: colors.cardBorder },
+    cardTop: { flexDirection: "row" },
+    cardImage: { width: 110, minHeight: 130, backgroundColor: colors.surfaceElevated },
+    cardImagePlc: {},
+    cardContent: { flex: 1, padding: 12, justifyContent: "space-between" },
+    cardTopRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+    cardVenue: { fontSize: 13, fontWeight: "600", color: colors.textSecondary, flex: 1, marginRight: 8 },
+    statusChip: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+    statusChipText: { fontSize: 10, fontWeight: "700" },
+    cardTitle: { fontSize: 14, fontWeight: "600", color: colors.text, lineHeight: 18, marginTop: 4 },
+    cardMeta: { marginTop: 6, gap: 4 },
+    cardDateRow: { flexDirection: "row", alignItems: "center", gap: 5 },
+    cardDate: { fontSize: 12, color: colors.textMuted },
+    cardFooter: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: colors.cardBorder },
+    cardValue: { fontSize: 15, fontWeight: "700", color: colors.accent },
+    checkInButton: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: colors.accent + "12" },
+    checkInText: { fontSize: 12, fontWeight: "600", color: colors.accent },
+    emptyState: { alignItems: "center", justifyContent: "center", paddingVertical: 80, gap: 12 },
+    emptyTitle: { fontSize: 16, fontWeight: "600", color: colors.textSecondary },
+    modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.7)", justifyContent: "center", alignItems: "center", padding: 32 },
+    modalContent: { backgroundColor: colors.card, borderRadius: 20, padding: 24, width: "100%", maxWidth: 340, alignItems: "center", borderWidth: 1, borderColor: colors.cardBorder, gap: 14 },
+    modalTitle: { fontSize: 20, fontWeight: "700", color: colors.text },
+    modalSubtitle: { fontSize: 14, color: colors.textSecondary, textAlign: "center" },
+    otpInput: { width: "100%", backgroundColor: colors.inputBackground, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, fontSize: 18, fontWeight: "700", color: colors.text, borderWidth: 1, borderColor: colors.inputBorder, textAlign: "center" },
+    otpError: { fontSize: 13, color: colors.red, fontWeight: "500" },
+    modalActions: { flexDirection: "row", gap: 10, width: "100%", marginTop: 4 },
+    modalCancel: { flex: 1, alignItems: "center", paddingVertical: 14, borderRadius: 14, borderWidth: 1, borderColor: colors.cardBorder },
+    modalCancelText: { fontSize: 15, fontWeight: "600", color: colors.textSecondary },
+    modalSubmit: { flex: 1, alignItems: "center", backgroundColor: colors.accent, paddingVertical: 14, borderRadius: 14 },
+    modalSubmitText: { fontSize: 15, fontWeight: "700", color: colors.background },
+  });
+}

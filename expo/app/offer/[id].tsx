@@ -25,17 +25,12 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
-import Colors from "@/constants/colors";
+import { useTheme } from "@/hooks/useTheme";
+import type { ThemeColors } from "@/constants/colors";
 import { useAuth } from "@/app/_layout";
 import { supabase } from "@/lib/supabase";
-import {
-  CATEGORY_NAMES,
-  CATEGORY_COLORS,
-  PLATFORM_NAMES,
-  type Platform,
-  type Offer,
-  type OfferStatus,
-} from "@/constants/mockData";
+import type { Platform } from "@/constants/mockData";
+import { PLATFORM_NAMES } from "@/constants/mockData";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -45,13 +40,57 @@ const POST_TYPE_LABELS: Record<string, string> = {
   feed_post: "Feed Post",
 };
 
-function PlatformBadge({ platform }: { platform: Platform }) {
+interface Offer {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  mediaUrl: string;
+  mediaType: "image" | "video";
+  venueId: string;
+  venueName: string;
+  venueLogoUrl: string;
+  venueVerified: boolean;
+  minFollowers: number;
+  minEngagementRate: number;
+  platforms: Platform[];
+  offerValue: string;
+  slotsTotal: number;
+  slotsRemaining: number;
+  expiryDate: string;
+  bookingWindow: string;
+  location: { address: string; city: string; lat: number; lon: number };
+  postRequirements: { postType: string; numberOfPosts: number; captionRequirements: string };
+  status: "open" | "full" | "expired";
+  type: "offer" | "event";
+  eventDate?: string;
+  eventTime?: string;
+}
+
+interface CategoryLookup {
+  [key: string]: { name: string; color: string };
+}
+
+const CATEGORY_FALLBACK_IMAGES: Record<string, string> = {
+  food_drink: "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800&h=500&fit=crop",
+  nightlife: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=800&h=500&fit=crop",
+  beauty: "https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?w=800&h=500&fit=crop",
+  fitness: "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=800&h=500&fit=crop",
+  default: "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800&h=500&fit=crop",
+};
+
+function PlatformBadge({ platform, colors }: { platform: Platform; colors: ThemeColors }) {
   return (
-    <View style={styles.platformBadge}>
-      <Text style={styles.platformBadgeText}>{PLATFORM_NAMES[platform]}</Text>
+    <View style={[pStyles.platformBadge, { backgroundColor: colors.surfaceElevated, borderColor: colors.cardBorder }]}>
+      <Text style={[pStyles.platformBadgeText, { color: colors.textSecondary }]}>{PLATFORM_NAMES[platform]}</Text>
     </View>
   );
 }
+
+const pStyles = StyleSheet.create({
+  platformBadge: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, borderWidth: 1 },
+  platformBadgeText: { fontSize: 12, fontWeight: "600" },
+});
 
 function mapOfferFromDB(item: any): Offer {
   return {
@@ -59,7 +98,9 @@ function mapOfferFromDB(item: any): Offer {
     title: item.title ?? "",
     description: item.description ?? "",
     category: item.category ?? "food_drink",
-    mediaUrl: item.media_url ?? "",
+    mediaUrl: item.media_url ||
+      CATEGORY_FALLBACK_IMAGES[item.category] ||
+      CATEGORY_FALLBACK_IMAGES.default,
     mediaType: item.media_type ?? "image",
     venueId: item.venue_id ?? "",
     venueName: item.venues?.name ?? "Venue",
@@ -80,28 +121,12 @@ function mapOfferFromDB(item: any): Offer {
       captionRequirements: item.caption_requirements ?? "",
     },
     status: item.is_active
-      ? ((item.max_redemptions && item.current_redemptions >= item.max_redemptions) ? "full" : "open")
+      ? (((item.current_redemptions ?? 0) >= (item.max_redemptions ?? 999)) ? "full" : "open")
       : "expired",
     type: item.type ?? "offer",
     eventDate: item.event_date ?? undefined,
     eventTime: item.event_time ?? undefined,
   };
-}
-
-function getStatusColor(status: OfferStatus): string {
-  switch (status) {
-    case "open": return Colors.dark.statusOpen;
-    case "full": return Colors.dark.statusFull;
-    default: return Colors.dark.statusExpired;
-  }
-}
-
-function getStatusLabel(status: OfferStatus): string {
-  switch (status) {
-    case "open": return "Open";
-    case "full": return "Full";
-    default: return "Expired";
-  }
 }
 
 export default function OfferDetailScreen() {
@@ -110,8 +135,33 @@ export default function OfferDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { session, profile } = useAuth();
   const queryClient = useQueryClient();
+  const { colors } = useTheme();
 
   const [applied, setApplied] = useState(false);
+
+  // Fetch categories for display lookup
+  const { data: categoriesData } = useQuery({
+    queryKey: ["categories"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("categories")
+        .select("id, name, color")
+        .eq("is_active", true);
+      return data ?? [];
+    },
+  });
+
+  const categoryLookup = useMemo<CategoryLookup>(() => {
+    const map: CategoryLookup = {};
+    (categoriesData ?? []).forEach((c: any) => {
+      map[c.id] = { name: c.name, color: c.color ?? colors.accent };
+      if (c.name) {
+        const slug = c.name.toLowerCase().replace(/[\s&]+/g, '_').replace(/[^a-z0-9_]/g, '');
+        map[slug] = { name: c.name, color: c.color ?? colors.accent };
+      }
+    });
+    return map;
+  }, [categoriesData, colors.accent]);
 
   const { data: offer, isLoading } = useQuery({
     queryKey: ["offer", id],
@@ -159,28 +209,37 @@ export default function OfferDetailScreen() {
 
   if (isLoading) {
     return (
-      <View style={[styles.container, styles.centerContent]}>
-        <ActivityIndicator size="large" color={Colors.dark.accent} />
+      <View style={[createStyles(colors).container, createStyles(colors).centerContent]}>
+        <ActivityIndicator size="large" color={colors.accent} />
       </View>
     );
   }
 
   if (!offer) {
+    const notFoundStyles = createStyles(colors);
     return (
-      <View style={[styles.container, styles.centerContent]}>
-        <Text style={styles.notFoundText}>Offer not found</Text>
-        <Pressable style={styles.backButtonAlt} onPress={() => router.back()}>
-          <Text style={styles.backButtonAltText}>Go back</Text>
+      <View style={[notFoundStyles.container, notFoundStyles.centerContent]}>
+        <Text style={notFoundStyles.notFoundText}>Offer not found</Text>
+        <Pressable style={notFoundStyles.backButtonAlt} onPress={() => router.back()}>
+          <Text style={notFoundStyles.backButtonAltText}>Go back</Text>
         </Pressable>
       </View>
     );
   }
 
-  const statusColor = getStatusColor(offer.status);
-  const statusLabel = getStatusLabel(offer.status);
-  const categoryColor = CATEGORY_COLORS[offer.category];
+  const catInfo = categoryLookup[offer.category] ?? { name: offer.category, color: colors.accent };
+  const statusColor =
+    offer.status === "open" ? colors.statusOpen
+    : offer.status === "full" ? colors.statusFull
+    : colors.statusExpired;
+  const statusLabel =
+    offer.status === "open" ? "Open"
+    : offer.status === "full" ? "Full"
+    : "Expired";
   const isDisabled = offer.status !== "open" || (alreadyApplied ?? false) || applied;
   const isFull = offer.status === "full" || (offer.slotsRemaining <= 0 && offer.status === "open");
+
+  const styles = useMemo(() => createStyles(colors), [colors]);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -203,7 +262,7 @@ export default function OfferDetailScreen() {
             <Image source={{ uri: offer.mediaUrl }} style={styles.heroMedia} resizeMode="cover" />
           ) : (
             <View style={[styles.heroMedia, styles.heroPlaceholder]}>
-              <MapPin size={48} color={Colors.dark.textMuted} />
+              <MapPin size={48} color={colors.textMuted} />
             </View>
           )}
           <View style={styles.heroOverlay}>
@@ -211,8 +270,8 @@ export default function OfferDetailScreen() {
               <View style={[styles.statusChip, { backgroundColor: statusColor + "25", borderColor: statusColor + "40" }]}>
                 <Text style={[styles.statusChipText, { color: statusColor }]}>{statusLabel}</Text>
               </View>
-              <View style={[styles.categoryChip, { backgroundColor: categoryColor + "30" }]}>
-                <Text style={[styles.categoryChipText, { color: categoryColor }]}>{CATEGORY_NAMES[offer.category]}</Text>
+              <View style={[styles.categoryChip, { backgroundColor: catInfo.color + "30" }]}>
+                <Text style={[styles.categoryChipText, { color: catInfo.color }]}>{catInfo.name}</Text>
               </View>
             </View>
           </View>
@@ -229,10 +288,10 @@ export default function OfferDetailScreen() {
             <View style={styles.venueInfo}>
               <View style={styles.venueNameRow}>
                 <Text style={styles.venueName}>{offer.venueName}</Text>
-                {offer.venueVerified && <Star size={14} color={Colors.dark.accent} fill={Colors.dark.accent} />}
+                {offer.venueVerified && <Star size={14} color={colors.accent} fill={colors.accent} />}
               </View>
               <View style={styles.locationRow}>
-                <MapPin size={13} color={Colors.dark.textMuted} />
+                <MapPin size={13} color={colors.textMuted} />
                 <Text style={styles.locationText} numberOfLines={1}>{offer.location.address}</Text>
               </View>
             </View>
@@ -262,7 +321,7 @@ export default function OfferDetailScreen() {
               <Text style={styles.detailCardLabel}>Total Slots</Text>
             </View>
             <View style={styles.detailCard}>
-              <Calendar size={14} color={Colors.dark.textSecondary} />
+              <Calendar size={14} color={colors.textSecondary} />
               <Text style={styles.detailCardDate}>{offer.expiryDate}</Text>
               <Text style={styles.detailCardLabel}>Expiry Date</Text>
             </View>
@@ -274,7 +333,7 @@ export default function OfferDetailScreen() {
           <Text style={styles.sectionLabel}>Requirements</Text>
           <View style={styles.requirementsCard}>
             <View style={styles.requirementRow}>
-              <Users size={15} color={Colors.dark.textSecondary} />
+              <Users size={15} color={colors.textSecondary} />
               <View style={styles.requirementContent}>
                 <Text style={styles.requirementLabel}>Minimum Followers</Text>
                 <Text style={styles.requirementValue}>{offer.minFollowers.toLocaleString()}+</Text>
@@ -282,7 +341,7 @@ export default function OfferDetailScreen() {
             </View>
             <View style={styles.requirementDivider} />
             <View style={styles.requirementRow}>
-              <Star size={15} color={Colors.dark.textSecondary} />
+              <Star size={15} color={colors.textSecondary} />
               <View style={styles.requirementContent}>
                 <Text style={styles.requirementLabel}>Min Engagement Rate</Text>
                 <Text style={styles.requirementValue}>{offer.minEngagementRate}%</Text>
@@ -290,12 +349,12 @@ export default function OfferDetailScreen() {
             </View>
             <View style={styles.requirementDivider} />
             <View style={styles.requirementRow}>
-              <Share2 size={15} color={Colors.dark.textSecondary} />
+              <Share2 size={15} color={colors.textSecondary} />
               <View style={styles.requirementContent}>
                 <Text style={styles.requirementLabel}>Accepted Platforms</Text>
                 <View style={styles.platformsRow}>
                   {offer.platforms.map((p) => (
-                    <PlatformBadge key={p} platform={p} />
+                    <PlatformBadge key={p} platform={p} colors={colors} />
                   ))}
                 </View>
               </View>
@@ -308,7 +367,7 @@ export default function OfferDetailScreen() {
           <Text style={styles.sectionLabel}>What You Need to Post</Text>
           <View style={styles.requirementsCard}>
             <View style={styles.requirementRow}>
-              <MessageSquareText size={15} color={Colors.dark.textSecondary} />
+              <MessageSquareText size={15} color={colors.textSecondary} />
               <View style={styles.requirementContent}>
                 <Text style={styles.requirementLabel}>Post Type</Text>
                 <Text style={styles.requirementValue}>{POST_TYPE_LABELS[offer.postRequirements.postType] ?? offer.postRequirements.postType}</Text>
@@ -316,7 +375,7 @@ export default function OfferDetailScreen() {
             </View>
             <View style={styles.requirementDivider} />
             <View style={styles.requirementRow}>
-              <CheckCircle2 size={15} color={Colors.dark.textSecondary} />
+              <CheckCircle2 size={15} color={colors.textSecondary} />
               <View style={styles.requirementContent}>
                 <Text style={styles.requirementLabel}>Number of Posts</Text>
                 <Text style={styles.requirementValue}>{offer.postRequirements.numberOfPosts} {offer.postRequirements.numberOfPosts === 1 ? "post" : "posts"}</Text>
@@ -338,7 +397,7 @@ export default function OfferDetailScreen() {
         <View style={styles.contentSection}>
           <Text style={styles.sectionLabel}>Location</Text>
           <View style={styles.mapCard}>
-            <MapPin size={24} color={Colors.dark.accent} />
+            <MapPin size={24} color={colors.accent} />
             <Text style={styles.mapAddress}>{offer.location.address}</Text>
           </View>
         </View>
@@ -349,7 +408,7 @@ export default function OfferDetailScreen() {
             <Text style={styles.sectionLabel}>Event Details</Text>
             <View style={styles.eventCard}>
               <View style={styles.eventRow}>
-                <Calendar size={16} color={Colors.dark.accent} />
+                <Calendar size={16} color={colors.accent} />
                 <View>
                   <Text style={styles.eventLabel}>Date</Text>
                   <Text style={styles.eventValue}>{offer.eventDate}</Text>
@@ -357,7 +416,7 @@ export default function OfferDetailScreen() {
               </View>
               <View style={styles.requirementDivider} />
               <View style={styles.eventRow}>
-                <Clock size={16} color={Colors.dark.accent} />
+                <Clock size={16} color={colors.accent} />
                 <View>
                   <Text style={styles.eventLabel}>Time</Text>
                   <Text style={styles.eventValue}>{offer.eventTime ?? "TBD"}</Text>
@@ -374,7 +433,7 @@ export default function OfferDetailScreen() {
       <View style={[styles.bottomBar, { paddingBottom: insets.bottom }]}>
         {applied || alreadyApplied ? (
           <View style={[styles.ctaButton, styles.ctaSuccess]}>
-            <CheckCircle2 size={18} color={Colors.dark.green} />
+            <CheckCircle2 size={18} color={colors.green} />
             <Text style={styles.ctaSuccessText}>Applied</Text>
           </View>
         ) : offer.status === "expired" ? (
@@ -383,7 +442,7 @@ export default function OfferDetailScreen() {
           </View>
         ) : isFull ? (
           <View style={[styles.ctaButton, styles.ctaDisabled]}>
-            <XCircle size={18} color={Colors.dark.textMuted} />
+            <XCircle size={18} color={colors.textMuted} />
             <Text style={styles.ctaDisabledText}>All Slots Full</Text>
           </View>
         ) : (
@@ -393,7 +452,7 @@ export default function OfferDetailScreen() {
             disabled={applyMutation.isPending}
           >
             {applyMutation.isPending ? (
-              <ActivityIndicator size="small" color={Colors.dark.background} />
+              <ActivityIndicator size="small" color={colors.background} />
             ) : (
               <Text style={styles.ctaText}>Request to Attend</Text>
             )}
@@ -404,64 +463,64 @@ export default function OfferDetailScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.dark.background },
-  centerContent: { alignItems: "center", justifyContent: "center" },
-  notFoundText: { fontSize: 18, fontWeight: "600", color: Colors.dark.textSecondary, marginBottom: 16 },
-  backButtonAlt: { paddingHorizontal: 24, paddingVertical: 10, backgroundColor: Colors.dark.accent, borderRadius: 12 },
-  backButtonAltText: { fontSize: 15, fontWeight: "600", color: Colors.dark.background },
-  scrollView: { flex: 1 },
-  scrollContent: { paddingBottom: 120 },
-  heroContainer: { width: SCREEN_WIDTH, height: 280, position: "relative" },
-  heroMedia: { width: "100%", height: "100%" },
-  heroPlaceholder: { backgroundColor: Colors.dark.surfaceElevated, alignItems: "center", justifyContent: "center" },
-  heroOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, justifyContent: "space-between", paddingTop: 50, paddingHorizontal: 16, paddingBottom: 16, backgroundColor: "rgba(0,0,0,0.25)" },
-  heroTopRow: { flexDirection: "row", justifyContent: "space-between" },
-  statusChip: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 10, borderWidth: 1, backgroundColor: "rgba(0,0,0,0.5)" },
-  statusChipText: { fontSize: 12, fontWeight: "700", textTransform: "uppercase" },
-  categoryChip: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 10, backgroundColor: "rgba(0,0,0,0.5)" },
-  categoryChipText: { fontSize: 12, fontWeight: "700" },
-  venueSection: { paddingHorizontal: 20, marginTop: -24, zIndex: 10 },
-  venueRow: { flexDirection: "row", alignItems: "center", backgroundColor: Colors.dark.card, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: Colors.dark.cardBorder, gap: 12 },
-  venueLogo: { width: 48, height: 48, borderRadius: 14, backgroundColor: Colors.dark.surfaceElevated, borderWidth: 2, borderColor: Colors.dark.background },
-  venueLogoPlaceholder: { backgroundColor: Colors.dark.surfaceElevated },
-  venueInfo: { flex: 1 },
-  venueNameRow: { flexDirection: "row", alignItems: "center", gap: 6 },
-  venueName: { fontSize: 16, fontWeight: "700", color: Colors.dark.text },
-  locationRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 },
-  locationText: { fontSize: 13, color: Colors.dark.textMuted, flex: 1 },
-  contentSection: { paddingHorizontal: 20, marginTop: 24 },
-  offerTitle: { fontSize: 24, fontWeight: "700", color: Colors.dark.text, lineHeight: 30 },
-  offerDescription: { fontSize: 15, color: Colors.dark.textSecondary, lineHeight: 22, marginTop: 10 },
-  sectionLabel: { fontSize: 16, fontWeight: "700", color: Colors.dark.text, marginBottom: 12 },
-  detailsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  detailCard: { width: "47%", backgroundColor: Colors.dark.card, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: Colors.dark.cardBorder, gap: 4 },
-  detailCardValue: { fontSize: 20, fontWeight: "700", color: Colors.dark.accent },
-  detailCardDate: { fontSize: 14, fontWeight: "600", color: Colors.dark.textSecondary, marginTop: 4 },
-  detailCardLabel: { fontSize: 12, color: Colors.dark.textMuted, fontWeight: "500" },
-  requirementsCard: { backgroundColor: Colors.dark.card, borderRadius: 16, borderWidth: 1, borderColor: Colors.dark.cardBorder, overflow: "hidden" },
-  requirementRow: { flexDirection: "row", padding: 14, gap: 12, alignItems: "flex-start" },
-  requirementContent: { flex: 1 },
-  requirementLabel: { fontSize: 12, color: Colors.dark.textMuted, fontWeight: "500", marginBottom: 2 },
-  requirementValue: { fontSize: 15, fontWeight: "600", color: Colors.dark.text },
-  requirementDivider: { height: 1, backgroundColor: Colors.dark.cardBorder, marginLeft: 40 },
-  platformsRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 4 },
-  platformBadge: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: Colors.dark.surfaceElevated, borderWidth: 1, borderColor: Colors.dark.cardBorder },
-  platformBadgeText: { fontSize: 12, fontWeight: "600", color: Colors.dark.textSecondary },
-  captionContainer: { padding: 14, paddingLeft: 40, gap: 4 },
-  captionLabel: { fontSize: 12, color: Colors.dark.textMuted, fontWeight: "500" },
-  captionText: { fontSize: 14, color: Colors.dark.text, lineHeight: 20, fontWeight: "500" },
-  mapCard: { backgroundColor: Colors.dark.card, borderRadius: 16, borderWidth: 1, borderColor: Colors.dark.cardBorder, padding: 20, alignItems: "center", gap: 8 },
-  mapAddress: { fontSize: 14, color: Colors.dark.textSecondary, textAlign: "center", fontWeight: "500", lineHeight: 20 },
-  eventCard: { backgroundColor: Colors.dark.card, borderRadius: 16, borderWidth: 1, borderColor: Colors.dark.cardBorder, overflow: "hidden" },
-  eventRow: { flexDirection: "row", padding: 14, gap: 12, alignItems: "center" },
-  eventLabel: { fontSize: 12, color: Colors.dark.textMuted, fontWeight: "500" },
-  eventValue: { fontSize: 15, fontWeight: "600", color: Colors.dark.text },
-  bottomBar: { position: "absolute", bottom: 0, left: 0, right: 0, paddingHorizontal: 20, paddingTop: 12, backgroundColor: Colors.dark.background, borderTopWidth: 1, borderTopColor: Colors.dark.cardBorder },
-  ctaButton: { backgroundColor: Colors.dark.accent, paddingVertical: 16, borderRadius: 16, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8 },
-  ctaText: { fontSize: 17, fontWeight: "700", color: Colors.dark.background },
-  ctaDisabled: { backgroundColor: Colors.dark.card, borderWidth: 1, borderColor: Colors.dark.cardBorder },
-  ctaDisabledText: { fontSize: 17, fontWeight: "600", color: Colors.dark.textMuted },
-  ctaSuccess: { backgroundColor: Colors.dark.green + "15", borderWidth: 1, borderColor: Colors.dark.green + "30" },
-  ctaSuccessText: { fontSize: 17, fontWeight: "700", color: Colors.dark.green },
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
+    centerContent: { alignItems: "center", justifyContent: "center" },
+    notFoundText: { fontSize: 18, fontWeight: "600", color: colors.textSecondary, marginBottom: 16 },
+    backButtonAlt: { paddingHorizontal: 24, paddingVertical: 10, backgroundColor: colors.accent, borderRadius: 12 },
+    backButtonAltText: { fontSize: 15, fontWeight: "600", color: colors.background },
+    scrollView: { flex: 1 },
+    scrollContent: { paddingBottom: 120 },
+    heroContainer: { width: SCREEN_WIDTH, height: 280, position: "relative" },
+    heroMedia: { width: "100%", height: "100%" },
+    heroPlaceholder: { backgroundColor: colors.surfaceElevated, alignItems: "center", justifyContent: "center" },
+    heroOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, justifyContent: "space-between", paddingTop: 50, paddingHorizontal: 16, paddingBottom: 16, backgroundColor: "rgba(0,0,0,0.25)" },
+    heroTopRow: { flexDirection: "row", justifyContent: "space-between" },
+    statusChip: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 10, borderWidth: 1, backgroundColor: "rgba(0,0,0,0.5)" },
+    statusChipText: { fontSize: 12, fontWeight: "700", textTransform: "uppercase" },
+    categoryChip: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 10, backgroundColor: "rgba(0,0,0,0.5)" },
+    categoryChipText: { fontSize: 12, fontWeight: "700" },
+    venueSection: { paddingHorizontal: 20, marginTop: -24, zIndex: 10 },
+    venueRow: { flexDirection: "row", alignItems: "center", backgroundColor: colors.card, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: colors.cardBorder, gap: 12 },
+    venueLogo: { width: 48, height: 48, borderRadius: 14, backgroundColor: colors.surfaceElevated, borderWidth: 2, borderColor: colors.background },
+    venueLogoPlaceholder: { backgroundColor: colors.surfaceElevated },
+    venueInfo: { flex: 1 },
+    venueNameRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+    venueName: { fontSize: 16, fontWeight: "700", color: colors.text },
+    locationRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 },
+    locationText: { fontSize: 13, color: colors.textMuted, flex: 1 },
+    contentSection: { paddingHorizontal: 20, marginTop: 24 },
+    offerTitle: { fontSize: 24, fontWeight: "700", color: colors.text, lineHeight: 30 },
+    offerDescription: { fontSize: 15, color: colors.textSecondary, lineHeight: 22, marginTop: 10 },
+    sectionLabel: { fontSize: 16, fontWeight: "700", color: colors.text, marginBottom: 12 },
+    detailsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+    detailCard: { width: "47%", backgroundColor: colors.card, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: colors.cardBorder, gap: 4 },
+    detailCardValue: { fontSize: 20, fontWeight: "700", color: colors.accent },
+    detailCardDate: { fontSize: 14, fontWeight: "600", color: colors.textSecondary, marginTop: 4 },
+    detailCardLabel: { fontSize: 12, color: colors.textMuted, fontWeight: "500" },
+    requirementsCard: { backgroundColor: colors.card, borderRadius: 16, borderWidth: 1, borderColor: colors.cardBorder, overflow: "hidden" },
+    requirementRow: { flexDirection: "row", padding: 14, gap: 12, alignItems: "flex-start" },
+    requirementContent: { flex: 1 },
+    requirementLabel: { fontSize: 12, color: colors.textMuted, fontWeight: "500", marginBottom: 2 },
+    requirementValue: { fontSize: 15, fontWeight: "600", color: colors.text },
+    requirementDivider: { height: 1, backgroundColor: colors.cardBorder, marginLeft: 40 },
+    platformsRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 4 },
+    captionContainer: { padding: 14, paddingLeft: 40, gap: 4 },
+    captionLabel: { fontSize: 12, color: colors.textMuted, fontWeight: "500" },
+    captionText: { fontSize: 14, color: colors.text, lineHeight: 20, fontWeight: "500" },
+    mapCard: { backgroundColor: colors.card, borderRadius: 16, borderWidth: 1, borderColor: colors.cardBorder, padding: 20, alignItems: "center", gap: 8 },
+    mapAddress: { fontSize: 14, color: colors.textSecondary, textAlign: "center", fontWeight: "500", lineHeight: 20 },
+    eventCard: { backgroundColor: colors.card, borderRadius: 16, borderWidth: 1, borderColor: colors.cardBorder, overflow: "hidden" },
+    eventRow: { flexDirection: "row", padding: 14, gap: 12, alignItems: "center" },
+    eventLabel: { fontSize: 12, color: colors.textMuted, fontWeight: "500" },
+    eventValue: { fontSize: 15, fontWeight: "600", color: colors.text },
+    bottomBar: { position: "absolute", bottom: 0, left: 0, right: 0, paddingHorizontal: 20, paddingTop: 12, backgroundColor: colors.background, borderTopWidth: 1, borderTopColor: colors.cardBorder },
+    ctaButton: { backgroundColor: colors.accent, paddingVertical: 16, borderRadius: 16, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8 },
+    ctaText: { fontSize: 17, fontWeight: "700", color: colors.background },
+    ctaDisabled: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardBorder },
+    ctaDisabledText: { fontSize: 17, fontWeight: "600", color: colors.textMuted },
+    ctaSuccess: { backgroundColor: colors.green + "15", borderWidth: 1, borderColor: colors.green + "30" },
+    ctaSuccessText: { fontSize: 17, fontWeight: "700", color: colors.green },
+  });
+}

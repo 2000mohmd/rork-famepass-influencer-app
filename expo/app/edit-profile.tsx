@@ -1,9 +1,6 @@
 import { useRouter } from "expo-router";
-import {
-  ArrowLeft,
-  Save,
-} from "lucide-react-native";
-import React, { useCallback, useState } from "react";
+import { Save } from "lucide-react-native";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -17,7 +14,8 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import Colors from "@/constants/colors";
+import { useTheme } from "@/hooks/useTheme";
+import type { ThemeColors } from "@/constants/colors";
 import { useAuth } from "@/app/_layout";
 import { supabase } from "@/lib/supabase";
 
@@ -25,9 +23,12 @@ export default function EditProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { profile, refreshProfile } = useAuth();
+  const { colors } = useTheme();
 
   const [fullName, setFullName] = useState(profile?.full_name ?? "");
   const [bio, setBio] = useState(profile?.bio ?? "");
+  const [city, setCity] = useState("");
+  const [country, setCountry] = useState("");
   const [instagram, setInstagram] = useState(profile?.instagram_handle ?? "");
   const [tiktok, setTiktok] = useState(profile?.tiktok_handle ?? "");
   const [followers, setFollowers] = useState(
@@ -51,6 +52,8 @@ export default function EditProfileScreen() {
         .update({
           full_name: fullName.trim(),
           bio: bio.trim(),
+          city: city.trim() || undefined,
+          country: country.trim() || undefined,
           instagram_handle: instagram.trim(),
           tiktok_handle: tiktok.trim(),
           followers_count: Number(followers) || 0,
@@ -70,7 +73,9 @@ export default function EditProfileScreen() {
     } finally {
       setLoading(false);
     }
-  }, [fullName, bio, instagram, tiktok, followers, profile, refreshProfile, router]);
+  }, [fullName, bio, city, country, instagram, tiktok, followers, profile, refreshProfile, router]);
+
+  const styles = useMemo(() => createStyles(colors), [colors]);
 
   return (
     <KeyboardAvoidingView
@@ -98,7 +103,7 @@ export default function EditProfileScreen() {
           <TextInput
             style={styles.input}
             placeholder="Your name"
-            placeholderTextColor={Colors.dark.textMuted}
+            placeholderTextColor={colors.textMuted}
             value={fullName}
             onChangeText={setFullName}
           />
@@ -109,7 +114,7 @@ export default function EditProfileScreen() {
           <TextInput
             style={[styles.input, styles.textArea]}
             placeholder="Tell venues about your content style..."
-            placeholderTextColor={Colors.dark.textMuted}
+            placeholderTextColor={colors.textMuted}
             multiline
             numberOfLines={3}
             textAlignVertical="top"
@@ -118,12 +123,35 @@ export default function EditProfileScreen() {
           />
         </View>
 
+        <View style={styles.row}>
+          <View style={[styles.inputGroup, { flex: 1 }]}>
+            <Text style={styles.label}>City</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Your city"
+              placeholderTextColor={colors.textMuted}
+              value={city}
+              onChangeText={setCity}
+            />
+          </View>
+          <View style={[styles.inputGroup, { flex: 1 }]}>
+            <Text style={styles.label}>Country</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Your country"
+              placeholderTextColor={colors.textMuted}
+              value={country}
+              onChangeText={setCountry}
+            />
+          </View>
+        </View>
+
         <View style={styles.inputGroup}>
           <Text style={styles.label}>Instagram handle</Text>
           <TextInput
             style={styles.input}
             placeholder="@yourhandle"
-            placeholderTextColor={Colors.dark.textMuted}
+            placeholderTextColor={colors.textMuted}
             autoCapitalize="none"
             value={instagram}
             onChangeText={setInstagram}
@@ -135,7 +163,7 @@ export default function EditProfileScreen() {
           <TextInput
             style={styles.input}
             placeholder="@yourhandle"
-            placeholderTextColor={Colors.dark.textMuted}
+            placeholderTextColor={colors.textMuted}
             autoCapitalize="none"
             value={tiktok}
             onChangeText={setTiktok}
@@ -147,7 +175,7 @@ export default function EditProfileScreen() {
           <TextInput
             style={styles.input}
             placeholder="e.g. 50000"
-            placeholderTextColor={Colors.dark.textMuted}
+            placeholderTextColor={colors.textMuted}
             keyboardType="numeric"
             value={followers}
             onChangeText={setFollowers}
@@ -160,10 +188,10 @@ export default function EditProfileScreen() {
           disabled={loading}
         >
           {loading ? (
-            <ActivityIndicator size="small" color={Colors.dark.background} />
+            <ActivityIndicator size="small" color={colors.background} />
           ) : (
             <>
-              <Save size={18} color={Colors.dark.background} />
+              <Save size={18} color={colors.background} />
               <Text style={styles.saveText}>Save Changes</Text>
             </>
           )}
@@ -173,76 +201,20 @@ export default function EditProfileScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.dark.background,
-  },
-  scrollContent: {
-    padding: 20,
-    gap: 16,
-    paddingBottom: 60,
-  },
-  errorBox: {
-    backgroundColor: Colors.dark.red + "18",
-    borderRadius: 12,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: Colors.dark.red + "30",
-  },
-  errorText: {
-    fontSize: 14,
-    color: Colors.dark.red,
-    fontWeight: "500",
-  },
-  successBox: {
-    backgroundColor: Colors.dark.green + "18",
-    borderRadius: 12,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: Colors.dark.green + "30",
-  },
-  successText: {
-    fontSize: 14,
-    color: Colors.dark.green,
-    fontWeight: "600",
-  },
-  inputGroup: {
-    gap: 6,
-  },
-  label: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: Colors.dark.textSecondary,
-    marginLeft: 4,
-  },
-  input: {
-    backgroundColor: Colors.dark.inputBackground,
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-    color: Colors.dark.text,
-    borderWidth: 1,
-    borderColor: Colors.dark.inputBorder,
-  },
-  textArea: {
-    minHeight: 90,
-    paddingTop: 14,
-  },
-  saveButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Colors.dark.accent,
-    paddingVertical: 16,
-    borderRadius: 16,
-    marginTop: 12,
-    gap: 8,
-  },
-  saveText: {
-    fontSize: 17,
-    fontWeight: "700",
-    color: Colors.dark.background,
-  },
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
+    scrollContent: { padding: 20, gap: 16, paddingBottom: 60 },
+    errorBox: { backgroundColor: colors.red + "18", borderRadius: 12, padding: 14, borderWidth: 1, borderColor: colors.red + "30" },
+    errorText: { fontSize: 14, color: colors.red, fontWeight: "500" },
+    successBox: { backgroundColor: colors.green + "18", borderRadius: 12, padding: 14, borderWidth: 1, borderColor: colors.green + "30" },
+    successText: { fontSize: 14, color: colors.green, fontWeight: "600" },
+    inputGroup: { gap: 6 },
+    label: { fontSize: 13, fontWeight: "600", color: colors.textSecondary, marginLeft: 4 },
+    input: { backgroundColor: colors.inputBackground, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, fontSize: 16, color: colors.text, borderWidth: 1, borderColor: colors.inputBorder },
+    textArea: { minHeight: 90, paddingTop: 14 },
+    row: { flexDirection: "row", gap: 10 },
+    saveButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: colors.accent, paddingVertical: 16, borderRadius: 16, marginTop: 12, gap: 8 },
+    saveText: { fontSize: 17, fontWeight: "700", color: colors.background },
+  });
+}

@@ -1,5 +1,5 @@
 import { useRouter } from "expo-router";
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -13,15 +13,16 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Eye, EyeOff } from "lucide-react-native";
 
-import Colors from "@/constants/colors";
+import { useTheme } from "@/hooks/useTheme";
+import type { ThemeColors } from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/app/_layout";
 
-function FamePassWordmark() {
+function FamePassWordmark({ colors }: { colors: ThemeColors }) {
   return (
     <View style={{ flexDirection: "row", alignItems: "baseline" }}>
-      <Text style={{ fontFamily: "serif", fontWeight: "700", fontSize: 32, color: Colors.dark.text }}>Fame</Text>
-      <Text style={{ fontFamily: "serif", fontStyle: "italic", fontWeight: "700", fontSize: 32, color: Colors.dark.accentLight }}>Pass</Text>
+      <Text style={{ fontFamily: "serif", fontWeight: "700", fontSize: 32, color: colors.text }}>Fame</Text>
+      <Text style={{ fontFamily: "serif", fontStyle: "italic", fontWeight: "700", fontSize: 32, color: colors.accentLight }}>Pass</Text>
     </View>
   );
 }
@@ -29,7 +30,7 @@ function FamePassWordmark() {
 export default function LoginScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { session, isInfluencer } = useAuth();
+  const { colors } = useTheme();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -57,7 +58,6 @@ export default function LoginScreen() {
         setError("Something went wrong. Please try again.");
         return;
       }
-      // Check role
       const { data: roleData } = await supabase
         .from("user_roles")
         .select("role")
@@ -77,6 +77,8 @@ export default function LoginScreen() {
     }
   }, [email, password, router]);
 
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
   return (
     <KeyboardAvoidingView
       style={[styles.container, { paddingTop: insets.top }]}
@@ -84,7 +86,7 @@ export default function LoginScreen() {
     >
       <View style={styles.content}>
         <View style={styles.logoSection}>
-          <FamePassWordmark />
+          <FamePassWordmark colors={colors} />
           <Text style={styles.subtitle}>Welcome back</Text>
         </View>
 
@@ -99,7 +101,7 @@ export default function LoginScreen() {
           <TextInput
             style={styles.input}
             placeholder="you@example.com"
-            placeholderTextColor={Colors.dark.textMuted}
+            placeholderTextColor={colors.textMuted}
             keyboardType="email-address"
             autoCapitalize="none"
             autoCorrect={false}
@@ -114,7 +116,7 @@ export default function LoginScreen() {
             <TextInput
               style={[styles.input, { flex: 1, borderWidth: 0 }]}
               placeholder="Enter your password"
-              placeholderTextColor={Colors.dark.textMuted}
+              placeholderTextColor={colors.textMuted}
               secureTextEntry={!showPassword}
               value={password}
               onChangeText={setPassword}
@@ -124,9 +126,9 @@ export default function LoginScreen() {
               onPress={() => setShowPassword(!showPassword)}
             >
               {showPassword ? (
-                <EyeOff size={18} color={Colors.dark.textMuted} />
+                <EyeOff size={18} color={colors.textMuted} />
               ) : (
-                <Eye size={18} color={Colors.dark.textMuted} />
+                <Eye size={18} color={colors.textMuted} />
               )}
             </Pressable>
           </View>
@@ -138,7 +140,7 @@ export default function LoginScreen() {
           disabled={loading}
         >
           {loading ? (
-            <ActivityIndicator size="small" color={Colors.dark.background} />
+            <ActivityIndicator size="small" color={colors.background} />
           ) : (
             <Text style={styles.primaryButtonText}>Sign In</Text>
           )}
@@ -162,106 +164,26 @@ export default function LoginScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.dark.background,
-  },
-  content: {
-    flex: 1,
-    justifyContent: "center",
-    paddingHorizontal: 28,
-    gap: 18,
-  },
-  logoSection: {
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: Colors.dark.textSecondary,
-    marginTop: 10,
-    fontWeight: "500",
-  },
-  errorBox: {
-    backgroundColor: Colors.dark.red + "18",
-    borderRadius: 12,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: Colors.dark.red + "30",
-  },
-  errorText: {
-    fontSize: 14,
-    color: Colors.dark.red,
-    fontWeight: "500",
-  },
-  inputGroup: {
-    gap: 6,
-  },
-  label: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: Colors.dark.textSecondary,
-    marginLeft: 4,
-  },
-  input: {
-    backgroundColor: Colors.dark.inputBackground,
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-    color: Colors.dark.text,
-    borderWidth: 1,
-    borderColor: Colors.dark.inputBorder,
-  },
-  passwordWrapper: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: Colors.dark.inputBackground,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: Colors.dark.inputBorder,
-  },
-  eyeButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-  },
-  primaryButton: {
-    backgroundColor: Colors.dark.accent,
-    paddingVertical: 16,
-    borderRadius: 16,
-    alignItems: "center",
-    marginTop: 8,
-  },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  primaryButtonText: {
-    fontSize: 17,
-    fontWeight: "700",
-    color: Colors.dark.background,
-  },
-  linkButton: {
-    alignItems: "center",
-    paddingVertical: 4,
-  },
-  linkText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: Colors.dark.accentLight,
-  },
-  bottomSection: {
-    flexDirection: "row",
-    justifyContent: "center",
-    paddingVertical: 16,
-  },
-  bottomText: {
-    fontSize: 14,
-    color: Colors.dark.textSecondary,
-  },
-  bottomLink: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: Colors.dark.accent,
-  },
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
+    content: { flex: 1, justifyContent: "center", paddingHorizontal: 28, gap: 18 },
+    logoSection: { alignItems: "center", marginBottom: 20 },
+    subtitle: { fontSize: 16, color: colors.textSecondary, marginTop: 10, fontWeight: "500" },
+    errorBox: { backgroundColor: colors.red + "18", borderRadius: 12, padding: 14, borderWidth: 1, borderColor: colors.red + "30" },
+    errorText: { fontSize: 14, color: colors.red, fontWeight: "500" },
+    inputGroup: { gap: 6 },
+    label: { fontSize: 13, fontWeight: "600", color: colors.textSecondary, marginLeft: 4 },
+    input: { backgroundColor: colors.inputBackground, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, fontSize: 16, color: colors.text, borderWidth: 1, borderColor: colors.inputBorder },
+    passwordWrapper: { flexDirection: "row", alignItems: "center", backgroundColor: colors.inputBackground, borderRadius: 14, borderWidth: 1, borderColor: colors.inputBorder },
+    eyeButton: { paddingHorizontal: 14, paddingVertical: 14 },
+    primaryButton: { backgroundColor: colors.accent, paddingVertical: 16, borderRadius: 16, alignItems: "center", marginTop: 8 },
+    buttonDisabled: { opacity: 0.6 },
+    primaryButtonText: { fontSize: 17, fontWeight: "700", color: colors.background },
+    linkButton: { alignItems: "center", paddingVertical: 4 },
+    linkText: { fontSize: 14, fontWeight: "600", color: colors.accentLight },
+    bottomSection: { flexDirection: "row", justifyContent: "center", paddingVertical: 16 },
+    bottomText: { fontSize: 14, color: colors.textSecondary },
+    bottomLink: { fontSize: 14, fontWeight: "700", color: colors.accent },
+  });
+}

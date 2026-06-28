@@ -4,7 +4,7 @@ import {
   Clock,
   XCircle,
 } from "lucide-react-native";
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -17,7 +17,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
-import Colors from "@/constants/colors";
+import { useTheme } from "@/hooks/useTheme";
+import type { ThemeColors } from "@/constants/colors";
 import { useAuth } from "@/app/_layout";
 import { supabase } from "@/lib/supabase";
 
@@ -31,7 +32,6 @@ interface Invitation {
   message: string | null;
   status: "pending" | "accepted" | "declined";
   created_at: string;
-  // Joined
   venue_name?: string;
   venue_logo_url?: string;
   offer_title?: string;
@@ -48,6 +48,7 @@ export default function InvitationsScreen() {
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
   const queryClient = useQueryClient();
+  const { colors } = useTheme();
   const [activeTab, setActiveTab] = useState<InviteTab>("pending");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
@@ -117,6 +118,8 @@ export default function InvitationsScreen() {
     [],
   );
 
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
@@ -143,7 +146,7 @@ export default function InvitationsScreen() {
 
       {isLoading ? (
         <View style={styles.center}>
-          <ActivityIndicator size="large" color={Colors.dark.accent} />
+          <ActivityIndicator size="large" color={colors.accent} />
         </View>
       ) : (
         <FlatList
@@ -154,7 +157,7 @@ export default function InvitationsScreen() {
           ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
           ListEmptyComponent={
             <View style={styles.emptyState}>
-              <Clock size={48} color={Colors.dark.textMuted} />
+              <Clock size={48} color={colors.textMuted} />
               <Text style={styles.emptyTitle}>No {activeTab} invitations</Text>
             </View>
           }
@@ -187,10 +190,10 @@ export default function InvitationsScreen() {
                     disabled={actionLoading === item.id}
                   >
                     {actionLoading === item.id ? (
-                      <ActivityIndicator size="small" color={Colors.dark.background} />
+                      <ActivityIndicator size="small" color={colors.background} />
                     ) : (
                       <>
-                        <CheckCircle2 size={16} color={Colors.dark.background} />
+                        <CheckCircle2 size={16} color={colors.background} />
                         <Text style={styles.acceptText}>Accept</Text>
                       </>
                     )}
@@ -200,7 +203,7 @@ export default function InvitationsScreen() {
                     onPress={() => handleAction(item.id, "decline")}
                     disabled={actionLoading === item.id}
                   >
-                    <XCircle size={16} color={Colors.dark.red} />
+                    <XCircle size={16} color={colors.red} />
                     <Text style={styles.declineText}>Decline</Text>
                   </Pressable>
                 </View>
@@ -209,10 +212,10 @@ export default function InvitationsScreen() {
               {activeTab !== "pending" && (
                 <View style={styles.statusRow}>
                   <View style={[styles.statusBadge, {
-                    backgroundColor: activeTab === "accepted" ? Colors.dark.green + "18" : Colors.dark.red + "18",
+                    backgroundColor: activeTab === "accepted" ? colors.green + "18" : colors.red + "18",
                   }]}>
                     <Text style={[styles.statusBadgeText, {
-                      color: activeTab === "accepted" ? Colors.dark.green : Colors.dark.red,
+                      color: activeTab === "accepted" ? colors.green : colors.red,
                     }]}>
                       {activeTab === "accepted" ? "Accepted" : "Declined"}
                     </Text>
@@ -227,163 +230,37 @@ export default function InvitationsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.dark.background,
-  },
-  center: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  header: {
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 8,
-  },
-  headerTitle: {
-    fontSize: 28,
-    fontWeight: "700",
-    color: Colors.dark.text,
-  },
-  headerSubtitle: {
-    fontSize: 14,
-    color: Colors.dark.textSecondary,
-    marginTop: 4,
-  },
-  tabBar: {
-    flexDirection: "row",
-    marginHorizontal: 16,
-    marginTop: 12,
-    marginBottom: 8,
-    backgroundColor: Colors.dark.card,
-    borderRadius: 14,
-    padding: 4,
-    borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
-  },
-  tab: {
-    flex: 1,
-    paddingVertical: 10,
-    alignItems: "center",
-    borderRadius: 11,
-  },
-  tabActive: {
-    backgroundColor: Colors.dark.accent + "18",
-  },
-  tabText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: Colors.dark.textSecondary,
-  },
-  tabTextActive: {
-    color: Colors.dark.accent,
-  },
-  listContent: {
-    padding: 16,
-    paddingBottom: 100,
-  },
-  card: {
-    backgroundColor: Colors.dark.card,
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
-    gap: 12,
-  },
-  cardTop: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  venueLogo: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: Colors.dark.surfaceElevated,
-  },
-  venueLogoPlaceholder: {
-    backgroundColor: Colors.dark.surfaceElevated,
-  },
-  cardInfo: {
-    flex: 1,
-    gap: 4,
-  },
-  venueName: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: Colors.dark.text,
-  },
-  offerTitle: {
-    fontSize: 13,
-    color: Colors.dark.textSecondary,
-  },
-  message: {
-    fontSize: 13,
-    color: Colors.dark.textMuted,
-    lineHeight: 18,
-    fontStyle: "italic",
-  },
-  cardActions: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  acceptButton: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Colors.dark.accent,
-    paddingVertical: 12,
-    borderRadius: 12,
-    gap: 6,
-  },
-  acceptText: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: Colors.dark.background,
-  },
-  declineButton: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "transparent",
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.dark.red + "40",
-    gap: 6,
-  },
-  declineText: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: Colors.dark.red,
-  },
-  buttonDisabled: {
-    opacity: 0.5,
-  },
-  statusRow: {
-    alignItems: "flex-end",
-  },
-  statusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  statusBadgeText: {
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  emptyState: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 80,
-    gap: 12,
-  },
-  emptyTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: Colors.dark.textSecondary,
-  },
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
+    center: { flex: 1, alignItems: "center", justifyContent: "center" },
+    header: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8 },
+    headerTitle: { fontSize: 28, fontWeight: "700", color: colors.text },
+    headerSubtitle: { fontSize: 14, color: colors.textSecondary, marginTop: 4 },
+    tabBar: { flexDirection: "row", marginHorizontal: 16, marginTop: 12, marginBottom: 8, backgroundColor: colors.card, borderRadius: 14, padding: 4, borderWidth: 1, borderColor: colors.cardBorder },
+    tab: { flex: 1, paddingVertical: 10, alignItems: "center", borderRadius: 11 },
+    tabActive: { backgroundColor: colors.accent + "18" },
+    tabText: { fontSize: 14, fontWeight: "600", color: colors.textSecondary },
+    tabTextActive: { color: colors.accent },
+    listContent: { padding: 16, paddingBottom: 100 },
+    card: { backgroundColor: colors.card, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: colors.cardBorder, gap: 12 },
+    cardTop: { flexDirection: "row", gap: 12 },
+    venueLogo: { width: 44, height: 44, borderRadius: 12, backgroundColor: colors.surfaceElevated },
+    venueLogoPlaceholder: { backgroundColor: colors.surfaceElevated },
+    cardInfo: { flex: 1, gap: 4 },
+    venueName: { fontSize: 15, fontWeight: "600", color: colors.text },
+    offerTitle: { fontSize: 13, color: colors.textSecondary },
+    message: { fontSize: 13, color: colors.textMuted, lineHeight: 18, fontStyle: "italic" },
+    cardActions: { flexDirection: "row", gap: 10 },
+    acceptButton: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: colors.accent, paddingVertical: 12, borderRadius: 12, gap: 6 },
+    acceptText: { fontSize: 15, fontWeight: "700", color: colors.background },
+    declineButton: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: "transparent", paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: colors.red + "40", gap: 6 },
+    declineText: { fontSize: 15, fontWeight: "600", color: colors.red },
+    buttonDisabled: { opacity: 0.5 },
+    statusRow: { alignItems: "flex-end" },
+    statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
+    statusBadgeText: { fontSize: 12, fontWeight: "700" },
+    emptyState: { alignItems: "center", justifyContent: "center", paddingVertical: 80, gap: 12 },
+    emptyTitle: { fontSize: 16, fontWeight: "600", color: colors.textSecondary },
+  });
+}

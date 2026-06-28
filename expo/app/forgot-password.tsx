@@ -1,6 +1,6 @@
 import { useRouter } from "expo-router";
 import { ArrowLeft, CheckCircle2 } from "lucide-react-native";
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -13,12 +13,14 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import Colors from "@/constants/colors";
+import { useTheme } from "@/hooks/useTheme";
+import type { ThemeColors } from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
 
 export default function ForgotPasswordScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
 
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
@@ -49,6 +51,8 @@ export default function ForgotPasswordScreen() {
     }
   }, [email]);
 
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
   return (
     <KeyboardAvoidingView
       style={[styles.container, { paddingTop: insets.top }]}
@@ -56,14 +60,14 @@ export default function ForgotPasswordScreen() {
     >
       <View style={styles.content}>
         <Pressable style={styles.backButton} onPress={() => router.back()}>
-          <ArrowLeft size={20} color={Colors.dark.textSecondary} />
+          <ArrowLeft size={20} color={colors.textSecondary} />
           <Text style={styles.backText}>Back</Text>
         </Pressable>
 
         {sent ? (
           <View style={styles.successState}>
             <View style={styles.successIcon}>
-              <CheckCircle2 size={48} color={Colors.dark.green} />
+              <CheckCircle2 size={48} color={colors.green} />
             </View>
             <Text style={styles.successTitle}>Check your email</Text>
             <Text style={styles.successText}>
@@ -93,7 +97,7 @@ export default function ForgotPasswordScreen() {
               <TextInput
                 style={styles.input}
                 placeholder="you@example.com"
-                placeholderTextColor={Colors.dark.textMuted}
+                placeholderTextColor={colors.textMuted}
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -108,7 +112,7 @@ export default function ForgotPasswordScreen() {
               disabled={loading}
             >
               {loading ? (
-                <ActivityIndicator size="small" color={Colors.dark.background} />
+                <ActivityIndicator size="small" color={colors.background} />
               ) : (
                 <Text style={styles.primaryButtonText}>Send Reset Link</Text>
               )}
@@ -120,111 +124,26 @@ export default function ForgotPasswordScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.dark.background,
-  },
-  content: {
-    flex: 1,
-    justifyContent: "center",
-    paddingHorizontal: 28,
-    gap: 18,
-  },
-  backButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginBottom: 10,
-  },
-  backText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: Colors.dark.textSecondary,
-  },
-  headerSection: {
-    gap: 8,
-    marginBottom: 8,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: "700",
-    color: Colors.dark.text,
-  },
-  subtitle: {
-    fontSize: 15,
-    color: Colors.dark.textSecondary,
-    lineHeight: 22,
-  },
-  errorBox: {
-    backgroundColor: Colors.dark.red + "18",
-    borderRadius: 12,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: Colors.dark.red + "30",
-  },
-  errorText: {
-    fontSize: 14,
-    color: Colors.dark.red,
-    fontWeight: "500",
-  },
-  inputGroup: {
-    gap: 6,
-  },
-  label: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: Colors.dark.textSecondary,
-    marginLeft: 4,
-  },
-  input: {
-    backgroundColor: Colors.dark.inputBackground,
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-    color: Colors.dark.text,
-    borderWidth: 1,
-    borderColor: Colors.dark.inputBorder,
-  },
-  primaryButton: {
-    backgroundColor: Colors.dark.accent,
-    paddingVertical: 16,
-    borderRadius: 16,
-    alignItems: "center",
-    marginTop: 8,
-  },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  primaryButtonText: {
-    fontSize: 17,
-    fontWeight: "700",
-    color: Colors.dark.background,
-  },
-  successState: {
-    alignItems: "center",
-    gap: 16,
-    paddingTop: 20,
-  },
-  successIcon: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: Colors.dark.green + "15",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 8,
-  },
-  successTitle: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: Colors.dark.text,
-  },
-  successText: {
-    fontSize: 15,
-    color: Colors.dark.textSecondary,
-    textAlign: "center",
-    lineHeight: 22,
-  },
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
+    content: { flex: 1, justifyContent: "center", paddingHorizontal: 28, gap: 18 },
+    backButton: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 10 },
+    backText: { fontSize: 14, fontWeight: "600", color: colors.textSecondary },
+    headerSection: { gap: 8, marginBottom: 8 },
+    title: { fontSize: 28, fontWeight: "700", color: colors.text },
+    subtitle: { fontSize: 15, color: colors.textSecondary, lineHeight: 22 },
+    errorBox: { backgroundColor: colors.red + "18", borderRadius: 12, padding: 14, borderWidth: 1, borderColor: colors.red + "30" },
+    errorText: { fontSize: 14, color: colors.red, fontWeight: "500" },
+    inputGroup: { gap: 6 },
+    label: { fontSize: 13, fontWeight: "600", color: colors.textSecondary, marginLeft: 4 },
+    input: { backgroundColor: colors.inputBackground, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, fontSize: 16, color: colors.text, borderWidth: 1, borderColor: colors.inputBorder },
+    primaryButton: { backgroundColor: colors.accent, paddingVertical: 16, borderRadius: 16, alignItems: "center", marginTop: 8 },
+    buttonDisabled: { opacity: 0.6 },
+    primaryButtonText: { fontSize: 17, fontWeight: "700", color: colors.background },
+    successState: { alignItems: "center", gap: 16, paddingTop: 20 },
+    successIcon: { width: 80, height: 80, borderRadius: 40, backgroundColor: colors.green + "15", alignItems: "center", justifyContent: "center", marginBottom: 8 },
+    successTitle: { fontSize: 22, fontWeight: "700", color: colors.text },
+    successText: { fontSize: 15, color: colors.textSecondary, textAlign: "center", lineHeight: 22 },
+  });
+}

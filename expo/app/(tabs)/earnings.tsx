@@ -3,7 +3,7 @@ import {
   Clock,
   Wallet,
 } from "lucide-react-native";
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -17,7 +17,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
-import Colors from "@/constants/colors";
+import { useTheme } from "@/hooks/useTheme";
+import type { ThemeColors } from "@/constants/colors";
 import { useAuth } from "@/app/_layout";
 import { supabase } from "@/lib/supabase";
 
@@ -34,6 +35,7 @@ export default function EarningsScreen() {
   const insets = useSafeAreaInsets();
   const { session } = useAuth();
   const queryClient = useQueryClient();
+  const { colors } = useTheme();
   const [withdrawAmount, setWithdrawAmount] = useState("");
   const [showWithdraw, setShowWithdraw] = useState(false);
   const [withdrawError, setWithdrawError] = useState<string | null>(null);
@@ -109,7 +111,7 @@ export default function EarningsScreen() {
       setWithdrawError("Enter a valid amount greater than 0.");
       return;
     }
-    if (balance !== undefined && amount > balance) {
+    if (balance !== undefined && amount > (balance ?? 0)) {
       setWithdrawError("Amount exceeds your wallet balance.");
       return;
     }
@@ -117,6 +119,9 @@ export default function EarningsScreen() {
   }, [withdrawAmount, balance]);
 
   const totalEarnings = earnings?.reduce((sum, e) => sum + (e.amount ?? 0), 0) ?? 0;
+  const safeBalance = balance ?? 0;
+
+  const styles = useMemo(() => createStyles(colors), [colors]);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -130,14 +135,14 @@ export default function EarningsScreen() {
             {/* Balance Card */}
             <View style={styles.balanceCard}>
               <View style={styles.balanceLabelRow}>
-                <Wallet size={18} color={Colors.dark.accentLight} />
+                <Wallet size={18} color={colors.accentLight} />
                 <Text style={styles.balanceLabel}>Wallet Balance</Text>
               </View>
               {balanceLoading ? (
-                <ActivityIndicator size="small" color={Colors.dark.accent} />
+                <ActivityIndicator size="small" color={colors.accent} />
               ) : (
                 <Text style={styles.balanceValue}>
-                  AED {balance?.toLocaleString() ?? "0"}
+                  AED {safeBalance.toLocaleString()}
                 </Text>
               )}
               <View style={styles.balanceActions}>
@@ -147,9 +152,9 @@ export default function EarningsScreen() {
                     setWithdrawError(null);
                     setShowWithdraw(true);
                   }}
-                  disabled={!balance || balance === 0}
+                  disabled={safeBalance === 0}
                 >
-                  <ArrowDownToLine size={16} color={Colors.dark.background} />
+                  <ArrowDownToLine size={16} color={colors.background} />
                   <Text style={styles.withdrawButtonText}>Withdraw</Text>
                 </Pressable>
               </View>
@@ -157,7 +162,7 @@ export default function EarningsScreen() {
 
             {pendingWithdrawal && (
               <View style={styles.pendingBanner}>
-                <Clock size={16} color={Colors.dark.orange} />
+                <Clock size={16} color={colors.orange} />
                 <Text style={styles.pendingText}>
                   Pending withdrawal: AED {pendingWithdrawal.amount?.toLocaleString()}
                 </Text>
@@ -177,7 +182,7 @@ export default function EarningsScreen() {
         ListEmptyComponent={
           !earningsLoading ? (
             <View style={styles.emptyState}>
-              <Wallet size={48} color={Colors.dark.textMuted} />
+              <Wallet size={48} color={colors.textMuted} />
               <Text style={styles.emptyTitle}>No earnings yet</Text>
               <Text style={styles.emptyText}>
                 Complete offers and attend events to start earning.
@@ -201,10 +206,10 @@ export default function EarningsScreen() {
               <Text style={styles.earningAmount}>+ AED {item.amount?.toLocaleString()}</Text>
               {item.status && (
                 <View style={[styles.earningStatus, {
-                  backgroundColor: item.status === "completed" ? Colors.dark.green + "18" : Colors.dark.orange + "18",
+                  backgroundColor: item.status === "completed" ? colors.green + "18" : colors.orange + "18",
                 }]}>
                   <Text style={[styles.earningStatusText, {
-                    color: item.status === "completed" ? Colors.dark.green : Colors.dark.orange,
+                    color: item.status === "completed" ? colors.green : colors.orange,
                   }]}>
                     {item.status}
                   </Text>
@@ -226,7 +231,7 @@ export default function EarningsScreen() {
           <Pressable style={styles.modalContent} onPress={() => {}}>
             <Text style={styles.modalTitle}>Withdraw Funds</Text>
             <Text style={styles.modalSubtitle}>
-              Available: AED {balance?.toLocaleString() ?? "0"}
+              Available: AED {safeBalance.toLocaleString()}
             </Text>
 
             <View style={styles.modalInputGroup}>
@@ -235,7 +240,7 @@ export default function EarningsScreen() {
                 ref={inputRef}
                 style={styles.modalInput}
                 placeholder="0"
-                placeholderTextColor={Colors.dark.textMuted}
+                placeholderTextColor={colors.textMuted}
                 keyboardType="numeric"
                 value={withdrawAmount}
                 onChangeText={setWithdrawAmount}
@@ -264,7 +269,7 @@ export default function EarningsScreen() {
                 disabled={withdrawMutation.isPending}
               >
                 {withdrawMutation.isPending ? (
-                  <ActivityIndicator size="small" color={Colors.dark.background} />
+                  <ActivityIndicator size="small" color={colors.background} />
                 ) : (
                   <Text style={styles.modalSubmitText}>Submit</Text>
                 )}
@@ -277,238 +282,48 @@ export default function EarningsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.dark.background,
-  },
-  listContent: {
-    padding: 16,
-    paddingBottom: 100,
-  },
-  headerSection: {
-    gap: 14,
-    marginBottom: 8,
-  },
-  balanceCard: {
-    backgroundColor: Colors.dark.accent + "12",
-    borderRadius: 20,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: Colors.dark.accent + "25",
-    gap: 12,
-  },
-  balanceLabelRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  balanceLabel: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: Colors.dark.accentLight,
-  },
-  balanceValue: {
-    fontSize: 40,
-    fontWeight: "700",
-    color: Colors.dark.text,
-  },
-  balanceActions: {
-    flexDirection: "row",
-    gap: 10,
-    marginTop: 4,
-  },
-  withdrawButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: Colors.dark.accent,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 14,
-    gap: 6,
-  },
-  withdrawButtonText: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: Colors.dark.background,
-  },
-  pendingBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: Colors.dark.orange + "12",
-    borderRadius: 12,
-    padding: 12,
-    gap: 8,
-    borderWidth: 1,
-    borderColor: Colors.dark.orange + "25",
-  },
-  pendingText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: Colors.dark.orange,
-    flex: 1,
-  },
-  totalRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  totalLabel: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: Colors.dark.textSecondary,
-  },
-  totalValue: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: Colors.dark.text,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: Colors.dark.text,
-    marginTop: 4,
-  },
-  earningCard: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    backgroundColor: Colors.dark.card,
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
-  },
-  earningLeft: {
-    gap: 4,
-  },
-  earningSource: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: Colors.dark.text,
-  },
-  earningDate: {
-    fontSize: 12,
-    color: Colors.dark.textMuted,
-  },
-  earningRight: {
-    alignItems: "flex-end",
-    gap: 4,
-  },
-  earningAmount: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: Colors.dark.green,
-  },
-  earningStatus: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  earningStatusText: {
-    fontSize: 10,
-    fontWeight: "700",
-    textTransform: "uppercase",
-  },
-  emptyState: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 80,
-    gap: 12,
-  },
-  emptyTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: Colors.dark.textSecondary,
-  },
-  emptyText: {
-    fontSize: 14,
-    color: Colors.dark.textMuted,
-    textAlign: "center",
-  },
-  // Modal
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.7)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 32,
-  },
-  modalContent: {
-    backgroundColor: Colors.dark.card,
-    borderRadius: 20,
-    padding: 24,
-    width: "100%",
-    maxWidth: 340,
-    borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
-    gap: 14,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: Colors.dark.text,
-  },
-  modalSubtitle: {
-    fontSize: 14,
-    color: Colors.dark.textSecondary,
-  },
-  modalInputGroup: {
-    gap: 6,
-  },
-  modalLabel: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: Colors.dark.textSecondary,
-    marginLeft: 4,
-  },
-  modalInput: {
-    backgroundColor: Colors.dark.inputBackground,
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 20,
-    fontWeight: "700",
-    color: Colors.dark.text,
-    borderWidth: 1,
-    borderColor: Colors.dark.inputBorder,
-  },
-  modalError: {
-    fontSize: 13,
-    color: Colors.dark.red,
-    fontWeight: "500",
-  },
-  modalActions: {
-    flexDirection: "row",
-    gap: 10,
-    marginTop: 4,
-  },
-  modalCancel: {
-    flex: 1,
-    alignItems: "center",
-    paddingVertical: 14,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: Colors.dark.cardBorder,
-  },
-  modalCancelText: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: Colors.dark.textSecondary,
-  },
-  modalSubmit: {
-    flex: 1,
-    alignItems: "center",
-    backgroundColor: Colors.dark.accent,
-    paddingVertical: 14,
-    borderRadius: 14,
-  },
-  buttonDisabled: {
-    opacity: 0.5,
-  },
-  modalSubmitText: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: Colors.dark.background,
-  },
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
+    listContent: { padding: 16, paddingBottom: 100 },
+    headerSection: { gap: 14, marginBottom: 8 },
+    balanceCard: { backgroundColor: colors.accent + "12", borderRadius: 20, padding: 24, borderWidth: 1, borderColor: colors.accent + "25", gap: 12 },
+    balanceLabelRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+    balanceLabel: { fontSize: 14, fontWeight: "600", color: colors.accentLight },
+    balanceValue: { fontSize: 40, fontWeight: "700", color: colors.text },
+    balanceActions: { flexDirection: "row", gap: 10, marginTop: 4 },
+    withdrawButton: { flexDirection: "row", alignItems: "center", backgroundColor: colors.accent, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 14, gap: 6 },
+    withdrawButtonText: { fontSize: 15, fontWeight: "700", color: colors.background },
+    pendingBanner: { flexDirection: "row", alignItems: "center", backgroundColor: colors.orange + "12", borderRadius: 12, padding: 12, gap: 8, borderWidth: 1, borderColor: colors.orange + "25" },
+    pendingText: { fontSize: 13, fontWeight: "600", color: colors.orange, flex: 1 },
+    totalRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+    totalLabel: { fontSize: 14, fontWeight: "600", color: colors.textSecondary },
+    totalValue: { fontSize: 18, fontWeight: "700", color: colors.text },
+    sectionTitle: { fontSize: 16, fontWeight: "700", color: colors.text, marginTop: 4 },
+    earningCard: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", backgroundColor: colors.card, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: colors.cardBorder },
+    earningLeft: { gap: 4 },
+    earningSource: { fontSize: 15, fontWeight: "600", color: colors.text },
+    earningDate: { fontSize: 12, color: colors.textMuted },
+    earningRight: { alignItems: "flex-end", gap: 4 },
+    earningAmount: { fontSize: 16, fontWeight: "700", color: colors.green },
+    earningStatus: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
+    earningStatusText: { fontSize: 10, fontWeight: "700", textTransform: "uppercase" },
+    emptyState: { alignItems: "center", justifyContent: "center", paddingVertical: 80, gap: 12 },
+    emptyTitle: { fontSize: 16, fontWeight: "600", color: colors.textSecondary },
+    emptyText: { fontSize: 14, color: colors.textMuted, textAlign: "center" },
+    modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.7)", justifyContent: "center", alignItems: "center", padding: 32 },
+    modalContent: { backgroundColor: colors.card, borderRadius: 20, padding: 24, width: "100%", maxWidth: 340, borderWidth: 1, borderColor: colors.cardBorder, gap: 14 },
+    modalTitle: { fontSize: 20, fontWeight: "700", color: colors.text },
+    modalSubtitle: { fontSize: 14, color: colors.textSecondary },
+    modalInputGroup: { gap: 6 },
+    modalLabel: { fontSize: 13, fontWeight: "600", color: colors.textSecondary, marginLeft: 4 },
+    modalInput: { backgroundColor: colors.inputBackground, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, fontSize: 20, fontWeight: "700", color: colors.text, borderWidth: 1, borderColor: colors.inputBorder },
+    modalError: { fontSize: 13, color: colors.red, fontWeight: "500" },
+    modalActions: { flexDirection: "row", gap: 10, marginTop: 4 },
+    modalCancel: { flex: 1, alignItems: "center", paddingVertical: 14, borderRadius: 14, borderWidth: 1, borderColor: colors.cardBorder },
+    modalCancelText: { fontSize: 15, fontWeight: "600", color: colors.textSecondary },
+    modalSubmit: { flex: 1, alignItems: "center", backgroundColor: colors.accent, paddingVertical: 14, borderRadius: 14 },
+    buttonDisabled: { opacity: 0.5 },
+    modalSubmitText: { fontSize: 15, fontWeight: "700", color: colors.background },
+  });
+}
