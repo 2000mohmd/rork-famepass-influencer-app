@@ -105,7 +105,7 @@ function mapOfferFromDB(item: any): Offer {
     venueId: item.venue_id ?? "",
     venueName: item.venues?.name ?? "Venue",
     venueLogoUrl: item.venues?.logo_url ?? "",
-    venueVerified: item.venues?.verified ?? false,
+    venueVerified: false,
     minFollowers: item.min_followers ?? 0,
     minEngagementRate: item.min_engagement_rate ?? 0,
     platforms: item.platforms ?? [],
@@ -169,7 +169,7 @@ export default function OfferDetailScreen() {
       if (!id) return null;
       const { data } = await supabase
         .from("offers")
-        .select("*, venues:venue_id(name, logo_url, verified, address, city)")
+        .select("*, venues:venue_id(name, logo_url, address, city)")
         .eq("id", id)
         .single();
       if (!data) return null;

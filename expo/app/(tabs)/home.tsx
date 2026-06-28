@@ -98,7 +98,7 @@ function mapOfferFromDB(item: any): Offer {
     venueId: item.venue_id ?? "",
     venueName: item.venues?.name ?? "Venue",
     venueLogoUrl: item.venues?.logo_url ?? "",
-    venueVerified: item.venues?.verified ?? false,
+    venueVerified: false,
     minFollowers: item.min_followers ?? 0,
     minEngagementRate: item.min_engagement_rate ?? 0,
     platforms: item.platforms ?? [],
@@ -132,7 +132,7 @@ export default function HomeScreen() {
           max_redemptions, current_redemptions, is_active, end_date,
           offer_type, event_date, event_time, media_type, platforms,
           min_followers, min_engagement_rate, type,
-          venues!inner(id, name, logo_url, verified, address, city)
+          venues!inner(id, name, logo_url, address, city)
         `)
         .eq("is_active", true)
         .order("created_at", { ascending: false })
@@ -152,7 +152,7 @@ export default function HomeScreen() {
           max_redemptions, current_redemptions, is_active, end_date,
           offer_type, event_date, event_time, media_type, platforms,
           min_followers, min_engagement_rate, type,
-          venues!inner(id, name, logo_url, verified, address, city)
+          venues!inner(id, name, logo_url, address, city)
         `)
         .eq("is_active", true)
         .limit(5)
