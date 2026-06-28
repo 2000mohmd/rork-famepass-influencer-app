@@ -107,17 +107,6 @@ export default function ExploreScreen() {
     };
   }, [searchQuery]);
 
-  const { data: allOffers, isLoading } = useQuery({
-    queryKey: ["explore-offers", debouncedSearch, selectedCategory],
-    queryFn: async () => {
-      const params = new URLSearchParams();
-      if (debouncedSearch) params.set("search", debouncedSearch);
-      if (selectedCategory) params.set("category", selectedCategory);
-      const data = await apiRequestWithRefresh(`/offers?${params}`) as { offers?: any[] };
-      return (data.offers ?? []).map(mapOfferExplore);
-    },
-  });
-
   const { data: categories } = useQuery<CategoryItem[]>({
     queryKey: ["categories"],
     queryFn: async () => {
@@ -127,6 +116,23 @@ export default function ExploreScreen() {
         .eq("is_active", true)
         .order("name");
       return (data ?? []) as CategoryItem[];
+    },
+  });
+
+  // Find selected category name for API filtering
+  const selectedCategoryName = useMemo(() => {
+    if (!selectedCategory) return null;
+    return (categories ?? []).find((c: CategoryItem) => c.id === selectedCategory)?.name ?? null;
+  }, [selectedCategory, categories]);
+
+  const { data: allOffers, isLoading } = useQuery({
+    queryKey: ["explore-offers", debouncedSearch, selectedCategoryName],
+    queryFn: async () => {
+      const urlParams = new URLSearchParams();
+      if (debouncedSearch) urlParams.set("search", debouncedSearch);
+      if (selectedCategoryName) urlParams.set("category", selectedCategoryName);
+      const data = await apiRequestWithRefresh(`/offers?${urlParams}`) as { offers?: any[] };
+      return (data.offers ?? []).map(mapOfferExplore);
     },
   });
 
@@ -181,6 +187,14 @@ export default function ExploreScreen() {
           showsHorizontalScrollIndicator={false}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.categoryChips}
+          ListHeaderComponent={
+            <Pressable
+              style={[styles.chip, !selectedCategory && { backgroundColor: colors.accent + "25", borderColor: colors.accent }]}
+              onPress={() => setSelectedCategory(null)}
+            >
+              <Text style={[styles.chipText, !selectedCategory && { color: colors.accent }]}>All</Text>
+            </Pressable>
+          }
           renderItem={({ item }) => {
             const isActive = selectedCategory === item.id;
             return (

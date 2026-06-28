@@ -132,6 +132,17 @@ export default function HomeScreen() {
         : String(profile.followers_count))
     : "—";
 
+  // Group offers by category name for sectioned display
+  const offersByCategory = useMemo(() => {
+    const grouped: Record<string, Offer[]> = {};
+    (offers ?? []).forEach((offer: Offer) => {
+      const cat = offer.category || "Other";
+      if (!grouped[cat]) grouped[cat] = [];
+      grouped[cat].push(offer);
+    });
+    return grouped;
+  }, [offers]);
+
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   return (
@@ -236,6 +247,24 @@ export default function HomeScreen() {
             ))}
           </View>
         </View>
+
+        {/* Offers by Category */}
+        {Object.entries(offersByCategory).slice(0, 3).map(([categoryName, catOffers]) => (
+          <View key={categoryName} style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>{categoryName}</Text>
+              <Pressable style={styles.seeAllButton} onPress={() => router.push({ pathname: "/(tabs)/explore", params: { category: categoryName } })}>
+                <Text style={styles.seeAllText}>See all</Text>
+                <ArrowRight size={14} color={colors.accent} />
+              </Pressable>
+            </View>
+            {(catOffers as Offer[]).slice(0, 2).map((offer: Offer) => (
+              <View key={offer.id} style={{ paddingHorizontal: 20, marginBottom: 10 }}>
+                <OfferCard offer={offer} colors={colors} onPress={() => handleOfferPress(offer.id)} />
+              </View>
+            ))}
+          </View>
+        ))}
 
         <View style={{ height: 100 }} />
       </ScrollView>

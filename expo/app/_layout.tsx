@@ -18,6 +18,8 @@ type UserProfile = {
   full_name: string;
   avatar_url: string | null;
   bio: string | null;
+  city: string | null;
+  country: string | null;
   instagram_handle: string | null;
   tiktok_handle: string | null;
   followers_count: number;

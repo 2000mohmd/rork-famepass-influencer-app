@@ -62,7 +62,7 @@ export default function ProfileScreen() {
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={styles.profileHeader}>
-          <Pressable style={styles.settingsGear} onPress={() => router.push("/settings")}>
+          <Pressable style={styles.settingsGear} onPress={() => router.navigate("/settings" as any)}>
             <Settings size={20} color={colors.textSecondary} />
           </Pressable>
           <View style={styles.avatarContainer}>
@@ -83,7 +83,7 @@ export default function ProfileScreen() {
             <Text style={styles.bio}>{profile.bio}</Text>
           ) : null}
 
-          <Pressable style={styles.editButton} onPress={() => router.push("/edit-profile")}>
+          <Pressable style={styles.editButton} onPress={() => router.navigate("/edit-profile" as any)}>
             <Pencil size={14} color={colors.accent} />
             <Text style={styles.editButtonText}>Edit Profile</Text>
           </Pressable>
@@ -145,21 +145,21 @@ export default function ProfileScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Activity</Text>
           <View style={styles.settingsList}>
-            <Pressable style={styles.settingsItem} onPress={() => router.push("/(tabs)/attendance")}>
+            <Pressable style={styles.settingsItem} onPress={() => router.navigate("/(tabs)/attendance" as any)}>
               <View style={styles.settingsItemLeft}>
                 <Wallet size={18} color={colors.textSecondary} />
                 <Text style={styles.settingsItemText}>My Bookings</Text>
               </View>
               <ChevronRight size={16} color={colors.textMuted} />
             </Pressable>
-            <Pressable style={styles.settingsItem} onPress={() => router.push("/(tabs)/earnings")}>
+            <Pressable style={styles.settingsItem} onPress={() => router.navigate("/(tabs)/earnings" as any)}>
               <View style={styles.settingsItemLeft}>
                 <Wallet size={18} color={colors.accentLight} />
                 <Text style={styles.settingsItemText}>Earnings{walletBalance > 0 ? ` · ${currency} ${walletBalance.toLocaleString()}` : ""}</Text>
               </View>
               <ChevronRight size={16} color={colors.textMuted} />
             </Pressable>
-            <Pressable style={[styles.settingsItem, { borderBottomWidth: 0 }]} onPress={() => router.push("/settings")}>
+            <Pressable style={[styles.settingsItem, { borderBottomWidth: 0 }]} onPress={() => router.navigate("/settings" as any)}>
               <View style={styles.settingsItemLeft}>
                 <Settings size={18} color={colors.textSecondary} />
                 <Text style={styles.settingsItemText}>Settings</Text>

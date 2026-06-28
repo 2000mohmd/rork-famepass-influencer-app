@@ -1,6 +1,6 @@
 import { useRouter } from "expo-router";
 import { Save } from "lucide-react-native";
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -22,13 +22,13 @@ import { supabase } from "@/lib/supabase";
 export default function EditProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { profile, refreshProfile } = useAuth();
+  const { profile, session, refreshProfile } = useAuth();
   const { colors } = useTheme();
 
   const [fullName, setFullName] = useState(profile?.full_name ?? "");
   const [bio, setBio] = useState(profile?.bio ?? "");
-  const [city, setCity] = useState("");
-  const [country, setCountry] = useState("");
+  const [city, setCity] = useState(profile?.city ?? "");
+  const [country, setCountry] = useState(profile?.country ?? "");
   const [instagram, setInstagram] = useState(profile?.instagram_handle ?? "");
   const [tiktok, setTiktok] = useState(profile?.tiktok_handle ?? "");
   const [followers, setFollowers] = useState(
@@ -37,6 +37,19 @@ export default function EditProfileScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+
+  // Pre-fill all fields from profile on mount
+  useEffect(() => {
+    if (profile) {
+      setFullName(profile.full_name ?? "");
+      setBio(profile.bio ?? "");
+      setCity(profile.city ?? "");
+      setCountry(profile.country ?? "");
+      setInstagram(profile.instagram_handle ?? "");
+      setTiktok(profile.tiktok_handle ?? "");
+      setFollowers(profile.followers_count ? String(profile.followers_count) : "");
+    }
+  }, [profile]);
 
   const handleSave = useCallback(async () => {
     setError(null);
@@ -58,7 +71,7 @@ export default function EditProfileScreen() {
           tiktok_handle: tiktok.trim(),
           followers_count: Number(followers) || 0,
         })
-        .eq("user_id", profile?.id);
+        .eq("user_id", session?.user?.id);
 
       if (updateError) {
         setError(updateError.message);

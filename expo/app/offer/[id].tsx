@@ -179,21 +179,23 @@ export default function OfferDetailScreen() {
     },
   });
 
+  // ALL hooks must be above this line — styles useMemo before any early returns
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
   if (isLoading) {
     return (
-      <View style={[createStyles(colors).container, createStyles(colors).centerContent]}>
+      <View style={[styles.container, styles.centerContent]}>
         <ActivityIndicator size="large" color={colors.accent} />
       </View>
     );
   }
 
   if (!offer) {
-    const notFoundStyles = createStyles(colors);
     return (
-      <View style={[notFoundStyles.container, notFoundStyles.centerContent]}>
-        <Text style={notFoundStyles.notFoundText}>Offer not found</Text>
-        <Pressable style={notFoundStyles.backButtonAlt} onPress={() => router.back()}>
-          <Text style={notFoundStyles.backButtonAltText}>Go back</Text>
+      <View style={[styles.container, styles.centerContent]}>
+        <Text style={styles.notFoundText}>Offer not found</Text>
+        <Pressable style={styles.backButtonAlt} onPress={() => router.back()}>
+          <Text style={styles.backButtonAltText}>Go back</Text>
         </Pressable>
       </View>
     );
@@ -210,8 +212,6 @@ export default function OfferDetailScreen() {
     : "Expired";
   const isFull = offer.status === "full" || (offer.slotsRemaining <= 0 && offer.status === "open");
   const buttonDisabled = offer.status !== "open" || (alreadyApplied ?? false) || applied || isFull;
-
-  const styles = useMemo(() => createStyles(colors), [colors]);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -511,7 +511,7 @@ export default function OfferDetailScreen() {
               style={styles.successBtn}
               onPress={() => {
                 setShowSuccess(false);
-                router.push("/(tabs)/attendance");
+                router.navigate("/(tabs)/attendance" as any);
               }}
             >
               <Text style={styles.successBtnText}>View My Bookings</Text>
