@@ -22,7 +22,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { useCurrency } from "@/hooks/useCurrency";
 import type { ThemeColors } from "@/constants/colors";
 import { useAuth } from "@/app/_layout";
-import { supabase } from "@/lib/supabase";
+import { apiRequestWithRefresh } from "@/lib/api";
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -32,28 +32,20 @@ export default function ProfileScreen() {
   const currency = useCurrency();
   const [avatarError, setAvatarError] = useState(false);
 
-  const { data: bookingCounts } = useQuery({
-    queryKey: ["booking-counts"],
+  const { data: dashboard } = useQuery({
+    queryKey: ["dashboard"],
     queryFn: async () => {
-      if (!session?.user?.id) return { completed: 0, cancelled: 0 };
-      const [{ count: completed }, { count: cancelled }] = await Promise.all([
-        supabase.from("bookings").select("*", { count: "exact", head: true }).eq("influencer_id", session.user.id).eq("status", "completed"),
-        supabase.from("bookings").select("*", { count: "exact", head: true }).eq("influencer_id", session.user.id).eq("status", "cancelled"),
-      ]);
-      return { completed: completed ?? 0, cancelled: cancelled ?? 0 };
+      const data = await apiRequestWithRefresh("/dashboard") as any;
+      return data ?? {};
     },
     enabled: !!session?.user?.id,
   });
 
-  const { data: walletBalance } = useQuery({
-    queryKey: ["wallet-balance"],
-    queryFn: async () => {
-      if (!session?.user?.id) return 0;
-      const { data } = await supabase.rpc("get_wallet_balance", { _user_id: session.user.id });
-      return (data as number) ?? 0;
-    },
-    enabled: !!session?.user?.id,
-  });
+  const bookingCounts = {
+    completed: dashboard?.bookingCounts?.completed ?? 0,
+    cancelled: dashboard?.bookingCounts?.cancelled ?? 0,
+  };
+  const walletBalance = dashboard?.walletBalance ?? 0;
 
   const followersFormatted = profile?.followers_count
     ? (profile.followers_count >= 1000000
@@ -163,7 +155,7 @@ export default function ProfileScreen() {
             <Pressable style={styles.settingsItem} onPress={() => router.push("/(tabs)/earnings")}>
               <View style={styles.settingsItemLeft}>
                 <Wallet size={18} color={colors.accentLight} />
-                <Text style={styles.settingsItemText}>Earnings{(walletBalance ?? 0) > 0 ? ` · ${currency} ${(walletBalance ?? 0).toLocaleString()}` : ""}</Text>
+                <Text style={styles.settingsItemText}>Earnings{walletBalance > 0 ? ` · ${currency} ${walletBalance.toLocaleString()}` : ""}</Text>
               </View>
               <ChevronRight size={16} color={colors.textMuted} />
             </Pressable>

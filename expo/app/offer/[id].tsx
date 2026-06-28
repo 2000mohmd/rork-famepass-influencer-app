@@ -15,6 +15,7 @@ import {
 import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Dimensions,
   Image,
   Modal as RNModal,
@@ -34,6 +35,8 @@ import { useBookmarkStore } from "@/store/bookmarkStore";
 import type { ThemeColors } from "@/constants/colors";
 import { useAuth } from "@/app/_layout";
 import { supabase } from "@/lib/supabase";
+import { apiRequestWithRefresh } from "@/lib/api";
+import { mapOfferFromAPI } from "@/constants/mockData";
 import type { Platform } from "@/constants/mockData";
 import { PLATFORM_NAMES } from "@/constants/mockData";
 
@@ -76,14 +79,6 @@ interface CategoryLookup {
   [key: string]: { name: string; color: string };
 }
 
-const CATEGORY_FALLBACK_IMAGES: Record<string, string> = {
-  food_drink: "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800&h=500&fit=crop",
-  nightlife: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=800&h=500&fit=crop",
-  beauty: "https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?w=800&h=500&fit=crop",
-  fitness: "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=800&h=500&fit=crop",
-  default: "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800&h=500&fit=crop",
-};
-
 function PlatformBadge({ platform, colors }: { platform: Platform; colors: ThemeColors }) {
   return (
     <View style={[pStyles.platformBadge, { backgroundColor: colors.surfaceElevated, borderColor: colors.cardBorder }]}>
@@ -97,49 +92,11 @@ const pStyles = StyleSheet.create({
   platformBadgeText: { fontSize: 12, fontWeight: "600" },
 });
 
-function mapOfferFromDB(item: any): Offer {
-  return {
-    id: item.id,
-    title: item.title ?? "",
-    description: item.description ?? "",
-    category: item.categories?.name ?? "",
-    mediaUrl: item.media_url ||
-      CATEGORY_FALLBACK_IMAGES[item.categories?.id] ||
-      (item.categories?.name ? CATEGORY_FALLBACK_IMAGES[item.categories.name.toLowerCase().replace(/[\s&]+/g, '_')] : undefined) ||
-      CATEGORY_FALLBACK_IMAGES.default,
-    mediaType: item.media_type ?? "image",
-    venueId: item.venue_id ?? "",
-    venueName: item.venues?.name ?? "Venue",
-    venueLogoUrl: item.venues?.logo_url ?? "",
-    venueVerified: false,
-    minFollowers: item.min_followers ?? 0,
-    minEngagementRate: item.min_engagement_rate ?? 0,
-    platforms: item.platforms ?? [],
-    offerValue: item.value_worth ?? "$0",
-    slotsTotal: item.max_redemptions ?? 0,
-    slotsRemaining: (item.max_redemptions ?? 0) - (item.current_redemptions ?? 0),
-    expiryDate: item.end_date ?? "",
-    bookingWindow: "",
-    location: { address: item.venues?.address ?? "", city: item.venues?.city ?? "", lat: 0, lon: 0 },
-    postRequirements: {
-      postType: item.post_type ?? "story",
-      numberOfPosts: item.number_of_posts ?? 1,
-      captionRequirements: item.caption_requirements ?? "",
-    },
-    status: item.is_active
-      ? (((item.current_redemptions ?? 0) >= (item.max_redemptions ?? 999)) ? "full" : "open")
-      : "expired",
-    type: item.type ?? "offer",
-    eventDate: item.event_date ?? undefined,
-    eventTime: item.event_time ?? undefined,
-  };
-}
-
 export default function OfferDetailScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { session, profile } = useAuth();
+  const { session } = useAuth();
   const queryClient = useQueryClient();
   const { colors } = useTheme();
   const currency = useCurrency();
@@ -150,6 +107,8 @@ export default function OfferDetailScreen() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [visitDate, setVisitDate] = useState("");
   const [visitTime, setVisitTime] = useState("");
+  const [showSuccess, setShowSuccess] = useState(false);
+  const [qrCode, setQrCode] = useState<string | null>(null);
 
   // Fetch categories for display lookup
   const { data: categoriesData } = useQuery({
@@ -175,29 +134,20 @@ export default function OfferDetailScreen() {
     return map;
   }, [categoriesData, colors.accent]);
 
+  // Fetch offer via API
   const { data: offer, isLoading } = useQuery({
     queryKey: ["offer", id],
     queryFn: async () => {
       if (!id) return null;
-      const { data } = await supabase
-        .from("offers")
-        .select(`
-          id, title, description, category_id, media_url, media_type,
-          value_worth, max_redemptions, current_redemptions, is_active,
-          end_date, platforms, min_followers, min_engagement_rate,
-          post_type, number_of_posts, caption_requirements,
-          type, event_date, event_time,
-          venues:venue_id(name, logo_url, address, city),
-          categories(id, name, color)
-        `)
-        .eq("id", id)
-        .single();
-      if (!data) return null;
-      return mapOfferFromDB(data);
+      const data = await apiRequestWithRefresh(`/offers/${id}`) as { offer?: any };
+      const raw = data.offer ?? data;
+      if (!raw) return null;
+      return mapOfferFromAPI(raw);
     },
     enabled: !!id,
   });
 
+  // Check if already applied
   const { data: alreadyApplied } = useQuery({
     queryKey: ["offer-redemption", id, session?.user?.id],
     queryFn: async () => {
@@ -212,21 +162,20 @@ export default function OfferDetailScreen() {
     enabled: !!id && !!session?.user?.id,
   });
 
+  // Apply via API
   const applyMutation = useMutation({
     mutationFn: async () => {
-      if (!id || !session?.user?.id) throw new Error("Not authenticated");
-      await supabase.from("offer_redemptions").insert({
-        offer_id: id,
-        influencer_id: session.user.id,
-        status: "pending",
-        visit_date: visitDate || null,
-        visit_time: visitTime || null,
-      });
+      if (!id) throw new Error("No offer ID");
+      return apiRequestWithRefresh(`/offers/${id}/accept`, { method: "POST" }) as any;
     },
-    onSuccess: () => {
-      setApplied(true);
+    onSuccess: (data) => {
+      setQrCode(data.qr_code ?? null);
+      setShowSuccess(true);
       setShowDatePicker(false);
       queryClient.invalidateQueries({ queryKey: ["offer-redemption", id] });
+    },
+    onError: (e: any) => {
+      Alert.alert("Error", e.message ?? "Failed to apply");
     },
   });
 
@@ -259,8 +208,8 @@ export default function OfferDetailScreen() {
     offer.status === "open" ? "Open"
     : offer.status === "full" ? "Full"
     : "Expired";
-  const isDisabled = offer.status !== "open" || (alreadyApplied ?? false) || applied;
   const isFull = offer.status === "full" || (offer.slotsRemaining <= 0 && offer.status === "open");
+  const buttonDisabled = offer.status !== "open" || (alreadyApplied ?? false) || applied || isFull;
 
   const styles = useMemo(() => createStyles(colors), [colors]);
 
@@ -497,7 +446,7 @@ export default function OfferDetailScreen() {
             <Calendar size={32} color={colors.accent} />
             <Text style={styles.dateModalTitle}>Choose visit date</Text>
             <Text style={styles.dateModalSubtitle}>Let the venue know when you plan to visit</Text>
-            
+
             <View style={styles.dateInputRow}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.dateInputLabel}>Date</Text>
@@ -541,6 +490,34 @@ export default function OfferDetailScreen() {
             </View>
           </Pressable>
         </Pressable>
+      </RNModal>
+
+      {/* Success Modal with QR Code */}
+      <RNModal visible={showSuccess} transparent animationType="slide" onRequestClose={() => setShowSuccess(false)}>
+        <View style={styles.successModalOverlay}>
+          <View style={styles.successModal}>
+            <CheckCircle2 size={48} color={colors.green} />
+            <Text style={styles.successTitle}>Application Submitted!</Text>
+            <Text style={styles.successText}>
+              The venue will review and confirm your visit.
+            </Text>
+            {qrCode && (
+              <View style={styles.qrCodeBox}>
+                <Text style={styles.qrCode}>{qrCode}</Text>
+              </View>
+            )}
+            <Text style={styles.successHint}>Show this code at the venue when you visit.</Text>
+            <Pressable
+              style={styles.successBtn}
+              onPress={() => {
+                setShowSuccess(false);
+                router.push("/(tabs)/attendance");
+              }}
+            >
+              <Text style={styles.successBtnText}>View My Bookings</Text>
+            </Pressable>
+          </View>
+        </View>
       </RNModal>
     </View>
   );
@@ -618,5 +595,14 @@ function createStyles(colors: ThemeColors) {
     dateModalCancelText: { fontSize: 15, fontWeight: "600", color: colors.textSecondary },
     dateModalSubmit: { flex: 1, alignItems: "center", backgroundColor: colors.accent, paddingVertical: 14, borderRadius: 14 },
     dateModalSubmitText: { fontSize: 15, fontWeight: "700", color: colors.background },
+    successModalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.8)", justifyContent: "center", alignItems: "center", padding: 32 },
+    successModal: { backgroundColor: colors.card, borderRadius: 20, padding: 32, width: "100%", maxWidth: 360, alignItems: "center", borderWidth: 1, borderColor: colors.cardBorder, gap: 16 },
+    successTitle: { fontSize: 22, fontWeight: "700", color: colors.text, textAlign: "center" },
+    successText: { fontSize: 15, color: colors.textSecondary, textAlign: "center", lineHeight: 22 },
+    successHint: { fontSize: 13, color: colors.textMuted, textAlign: "center" },
+    qrCodeBox: { backgroundColor: colors.surfaceElevated, borderRadius: 16, padding: 20, borderWidth: 1, borderColor: colors.cardBorder, width: "100%", alignItems: "center" },
+    qrCode: { fontSize: 28, fontWeight: "700", color: colors.accent, letterSpacing: 4 },
+    successBtn: { backgroundColor: colors.accent, paddingVertical: 14, borderRadius: 14, paddingHorizontal: 32, width: "100%", alignItems: "center" },
+    successBtnText: { fontSize: 16, fontWeight: "700", color: colors.background },
   });
 }

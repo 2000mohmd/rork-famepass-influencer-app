@@ -13,7 +13,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/app/_layout";
-import { supabase } from "@/lib/supabase";
+import { apiRequestWithRefresh } from "@/lib/api";
 
 const badgeStyles = StyleSheet.create({
   badge: {
@@ -41,15 +41,9 @@ function PendingBadge() {
   const { data: count } = useQuery({
     queryKey: ["pending-invitations-count"],
     queryFn: async () => {
-      if (!session?.user?.id) return 0;
-      const { count: c } = await supabase
-        .from("invitations")
-        .select("*", { count: "exact", head: true })
-        .eq("influencer_id", session.user.id)
-        .eq("status", "pending");
-      return c ?? 0;
+      const data = await apiRequestWithRefresh("/invitations?status=pending&count=true") as { count?: number };
+      return data.count ?? 0;
     },
-    enabled: !!session?.user?.id,
     refetchInterval: 30000,
   });
 

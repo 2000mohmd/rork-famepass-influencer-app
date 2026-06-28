@@ -25,6 +25,7 @@ import { useCurrency } from "@/hooks/useCurrency";
 import type { ThemeColors } from "@/constants/colors";
 import { useAuth } from "@/app/_layout";
 import { supabase } from "@/lib/supabase";
+import { apiRequestWithRefresh } from "@/lib/api";
 
 type BookingTab = "upcoming" | "past" | "cancelled";
 
@@ -76,19 +77,10 @@ export default function AttendanceScreen() {
   const [otpError, setOtpError] = useState<string | null>(null);
 
   const { data: bookings, isLoading } = useQuery({
-    queryKey: ["bookings"],
+    queryKey: ["bookings", activeTab],
     queryFn: async () => {
-      if (!session?.user?.id) return [];
-      const { data } = await supabase
-        .from("bookings")
-        .select(`
-          *,
-          offers(id, title, value_worth),
-          venues(id, name, logo_url, city)
-        `)
-        .eq("influencer_id", session.user.id)
-        .order("created_at", { ascending: false });
-      return (data ?? []).map((b: any) => ({
+      const data = await apiRequestWithRefresh(`/bookings?status=${activeTab}`) as { bookings?: any[] };
+      return (data.bookings ?? []).map((b: any) => ({
         id: b.id,
         venue_name: b.venues?.name ?? "Venue",
         venue_logo_url: b.venues?.logo_url ?? null,
@@ -128,17 +120,8 @@ export default function AttendanceScreen() {
     },
   });
 
-  const filteredBookings = useMemo(() => {
-    if (!bookings) return [];
-    switch (activeTab) {
-      case "upcoming":
-        return bookings.filter((b: Booking) => UPCOMING_STATUSES.includes(b.status));
-      case "past":
-        return bookings.filter((b: Booking) => PAST_STATUSES.includes(b.status));
-      case "cancelled":
-        return bookings.filter((b: Booking) => CANCELLED_STATUSES.includes(b.status));
-    }
-  }, [bookings, activeTab]);
+  // Server filters by status now — use bookings directly
+  const filteredBookings = bookings ?? [];
 
   const handleCheckIn = useCallback((booking: Booking) => {
     setOtpInput("");

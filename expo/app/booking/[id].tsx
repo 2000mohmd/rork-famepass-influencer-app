@@ -28,6 +28,7 @@ import { useCurrency } from "@/hooks/useCurrency";
 import type { ThemeColors } from "@/constants/colors";
 import { useAuth } from "@/app/_layout";
 import { supabase } from "@/lib/supabase";
+import { apiRequestWithRefresh } from "@/lib/api";
 
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   confirmed: { label: "Confirmed", color: "#34D399" },
@@ -55,28 +56,21 @@ export default function BookingDetailScreen() {
     queryKey: ["booking", id],
     queryFn: async () => {
       if (!id) return null;
-      const { data } = await supabase
-        .from("bookings")
-        .select(`
-          id, status, booking_date, checked_in_at, qr_code, created_at,
-          offers(id, title, value_worth),
-          venues(id, name, logo_url, address, city)
-        `)
-        .eq("id", id)
-        .single();
-      if (!data) return null;
+      const data = await apiRequestWithRefresh(`/bookings/${id}`) as { booking?: any };
+      const b = data.booking ?? data;
+      if (!b) return null;
       return {
-        id: data.id,
-        status: data.status ?? "confirmed",
-        date: data.booking_date ?? data.created_at,
-        checkedInAt: data.checked_in_at ?? null,
-        qrCode: data.qr_code ?? null,
-        venueName: (data as any).venues?.name ?? "Venue",
-        venueLogoUrl: (data as any).venues?.logo_url ?? null,
-        venueAddress: (data as any).venues?.address ?? "",
-        venueCity: (data as any).venues?.city ?? "",
-        offerTitle: (data as any).offers?.title ?? "Offer",
-        offerValue: (data as any).offers?.value_worth ?? "0",
+        id: b.id,
+        status: b.status ?? "confirmed",
+        date: b.booking_date ?? b.created_at,
+        checkedInAt: b.checked_in_at ?? null,
+        qrCode: b.qr_code ?? null,
+        venueName: b.venues?.name ?? "Venue",
+        venueLogoUrl: b.venues?.logo_url ?? null,
+        venueAddress: b.venues?.address ?? "",
+        venueCity: b.venues?.city ?? "",
+        offerTitle: b.offers?.title ?? "Offer",
+        offerValue: b.offers?.value_worth ?? "0",
       };
     },
     enabled: !!id,

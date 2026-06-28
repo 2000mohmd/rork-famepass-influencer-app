@@ -6,6 +6,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
 
 import { supabase } from "@/lib/supabase";
+import { apiRequestWithRefresh } from "@/lib/api";
 import { useTheme } from "@/hooks/useTheme";
 import { useCurrencyStore } from "@/store/currencyStore";
 import type { ThemeColors } from "@/constants/colors";
@@ -110,17 +111,27 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
 
   const fetchProfile = async (userId: string) => {
     try {
-      const { data } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("user_id", userId)
-        .single();
+      // Use the influencer-api edge function for profile data
+      const data = await apiRequestWithRefresh("/profile") as { profile?: UserProfile };
 
-      if (data) {
+      if (data?.profile) {
         setProfile({
-          ...(data as UserProfile),
-          avatar_url: getPublicUrl(data.avatar_url),
+          ...(data.profile as UserProfile),
+          avatar_url: getPublicUrl(data.profile.avatar_url),
         });
+      } else {
+        // Fallback: try direct Supabase query
+        const { data: dbData } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("user_id", userId)
+          .single();
+        if (dbData) {
+          setProfile({
+            ...(dbData as UserProfile),
+            avatar_url: getPublicUrl(dbData.avatar_url),
+          });
+        }
       }
     } catch {
       // Profile might not exist yet

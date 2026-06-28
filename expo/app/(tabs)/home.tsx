@@ -29,23 +29,14 @@ import { useBookmarkStore } from "@/store/bookmarkStore";
 import type { ThemeColors } from "@/constants/colors";
 import { useAuth } from "@/app/_layout";
 import { supabase } from "@/lib/supabase";
-import type { Category } from "@/constants/mockData";
+import { apiRequestWithRefresh } from "@/lib/api";
+import { mapOfferFromAPI } from "@/constants/mockData";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const OFFER_CARD_WIDTH = SCREEN_WIDTH * 0.68;
 const CATEGORY_ITEM_SIZE = (SCREEN_WIDTH - 64) / 4;
 
-const CATEGORY_FALLBACK_IMAGES: Record<string, string> = {
-  food_drink: "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800&h=500&fit=crop",
-  nightlife: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=800&h=500&fit=crop",
-  beauty: "https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?w=800&h=500&fit=crop",
-  fitness: "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=800&h=500&fit=crop",
-  retail: "https://images.unsplash.com/photo-1483985988355-763728e1935b?w=800&h=500&fit=crop",
-  travel: "https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=800&h=500&fit=crop",
-  entertainment: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=800&h=500&fit=crop",
-  tech: "https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&h=500&fit=crop",
-  default: "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800&h=500&fit=crop",
-};
+
 
 interface Offer {
   id: string;
@@ -88,43 +79,11 @@ function timeGreeting(): string {
   return "Good evening";
 }
 
-/** Resolve a storage path to a public URL, handling nulls and full URLs */
-function resolveStorageUrl(bucket: string, path: string | null): string | null {
-  if (!path) return null;
-  if (path.startsWith("http")) return path;
-  const { data } = supabase.storage.from(bucket).getPublicUrl(path);
-  return data.publicUrl;
-}
-
-function mapOfferFromDB(item: any): Offer {
+function mapOfferHome(item: any): Offer {
+  const mapped = mapOfferFromAPI(item);
   return {
-    id: item.id,
-    title: item.title ?? "",
-    description: item.description ?? "",
-    category: item.categories?.name ?? "",
-    mediaUrl: resolveStorageUrl("offers", item.media_url) ||
-      CATEGORY_FALLBACK_IMAGES[item.categories?.id] ||
-      (item.categories?.name ? CATEGORY_FALLBACK_IMAGES[item.categories.name.toLowerCase().replace(/[\s&]+/g, '_')] : undefined) ||
-      CATEGORY_FALLBACK_IMAGES.default,
-    mediaType: item.media_type ?? "image",
-    venueId: item.venue_id ?? "",
-    venueName: item.venues?.name ?? "Venue",
-    venueLogoUrl: resolveStorageUrl("venues", item.venues?.logo_url) ?? "",
-    venueVerified: false,
-    minFollowers: item.min_followers ?? 0,
-    minEngagementRate: item.min_engagement_rate ?? 0,
-    platforms: item.platforms ?? [],
-    offerValue: item.value_worth ?? "$0",
-    slotsTotal: item.max_redemptions ?? 0,
-    slotsRemaining: (item.max_redemptions ?? 0) - (item.current_redemptions ?? 0),
-    expiryDate: item.end_date ?? "",
-    bookingWindow: "",
-    location: { address: item.venues?.address ?? "", city: item.venues?.city ?? "", lat: 0, lon: 0 },
-    postRequirements: { postType: "story", numberOfPosts: 1, captionRequirements: "" },
-    status: item.is_active ? (((item.current_redemptions ?? 0) >= (item.max_redemptions ?? 999)) ? "full" : "open") : "expired",
-    type: item.type ?? "offer",
-    eventDate: item.event_date ?? undefined,
-    eventTime: item.event_time ?? undefined,
+    ...mapped,
+    category: mapped.category ?? "",
   };
 }
 
@@ -137,43 +96,13 @@ export default function HomeScreen() {
   const { data: offers, isLoading: offersLoading } = useQuery({
     queryKey: ["home-offers"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("offers")
-        .select(`
-          id, title, description, category_id, media_url, value_worth,
-          max_redemptions, current_redemptions, is_active, end_date,
-          offer_type, event_date, event_time, media_type, platforms,
-          min_followers, min_engagement_rate, type,
-          venues(id, name, logo_url, address, city),
-          categories(id, name, color)
-        `)
-        .eq("is_active", true)
-        .order("created_at", { ascending: false })
-        .limit(10);
-      if (error) console.error("Offers error:", error);
-      return (data ?? []).map(mapOfferFromDB);
+      const data = await apiRequestWithRefresh("/offers?limit=10") as { offers?: any[] };
+      return (data.offers ?? []).map(mapOfferHome);
     },
   });
 
-  const { data: events } = useQuery({
-    queryKey: ["home-events"],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("events")
-        .select(`
-          id, title, description, category_id, media_url, value_worth,
-          max_redemptions, current_redemptions, is_active, end_date,
-          offer_type, event_date, event_time, media_type, platforms,
-          min_followers, min_engagement_rate, type,
-          venues(id, name, logo_url, address, city),
-          categories(id, name, color)
-        `)
-        .eq("is_active", true)
-        .limit(5)
-        .order("event_date", { ascending: true });
-      return (data ?? []).map(mapOfferFromDB);
-    },
-  });
+  // Derive events from offers data (client-side filter for event type)
+  const events = useMemo(() => (offers ?? []).filter((o: Offer) => o.type === "event").slice(0, 5), [offers]);
 
   const { data: categories } = useQuery<CategoryItem[]>({
     queryKey: ["categories"],

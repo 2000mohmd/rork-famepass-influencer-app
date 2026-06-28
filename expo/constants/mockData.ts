@@ -230,3 +230,56 @@ export function checkEligibility(
 
   return { eligible: reasons.length === 0, reasons };
 }
+
+/** Maps the influencer-api edge function response shape to the Offer interface. */
+export function mapOfferFromAPI(item: any): Offer {
+  return {
+    id: item.id,
+    title: item.title ?? "",
+    description: item.description ?? "",
+    category: ((item.categories?.name ?? item.category ?? "") as Category),
+    mediaUrl:
+      item.cover_image_url ||
+      item.image_url ||
+      item.media_url ||
+      "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800&h=500&fit=crop",
+    mediaType: item.media_type ?? "image",
+    venueId: item.venues?.id ?? item.venue_id ?? "",
+    venueName: item.venues?.name ?? "Venue",
+    venueLogoUrl: item.venues?.logo_url ?? "",
+    venueVerified: item.venues?.verified ?? false,
+    minFollowers: item.min_followers ?? 0,
+    minEngagementRate: item.min_engagement_rate ?? 0,
+    platforms: item.platforms ?? [],
+    offerValue: item.discount_value
+      ? `$${item.discount_value}`
+      : item.value_worth ?? "Free",
+    slotsTotal: item.max_redemptions ?? 0,
+    slotsRemaining: Math.max(
+      0,
+      (item.max_redemptions ?? 0) - (item.current_redemptions ?? 0),
+    ),
+    expiryDate: item.end_date ?? "",
+    bookingWindow: "",
+    location: {
+      city: item.venues?.city ?? "",
+      address: item.venues?.address ?? "",
+      lat: item.venues?.latitude ?? 0,
+      lon: item.venues?.longitude ?? 0,
+    },
+    postRequirements: {
+      postType: item.post_type ?? "story",
+      numberOfPosts: item.number_of_posts ?? 1,
+      captionRequirements: item.caption_requirements ?? "",
+    },
+    status: !item.is_active
+      ? "expired"
+      : item.max_redemptions &&
+          (item.current_redemptions ?? 0) >= (item.max_redemptions ?? 999)
+        ? "full"
+        : "open",
+    type: item.type ?? (item.offer_type === "event" ? "event" : "offer"),
+    eventDate: item.event_date ?? undefined,
+    eventTime: item.event_time ?? undefined,
+  };
+}

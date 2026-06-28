@@ -29,20 +29,12 @@ import { useBookmarkStore } from "@/store/bookmarkStore";
 import type { ThemeColors } from "@/constants/colors";
 import { useAuth } from "@/app/_layout";
 import { supabase } from "@/lib/supabase";
+import { apiRequestWithRefresh } from "@/lib/api";
+import { mapOfferFromAPI } from "@/constants/mockData";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const CARD_GAP = 10;
 const GRID_CARD_WIDTH = (SCREEN_WIDTH - 40 - CARD_GAP) / 2;
-
-const CATEGORY_FALLBACK_IMAGES: Record<string, string> = {
-  food_drink: "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800&h=500&fit=crop",
-  nightlife: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=800&h=500&fit=crop",
-  beauty: "https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?w=800&h=500&fit=crop",
-  fitness: "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=800&h=500&fit=crop",
-  retail: "https://images.unsplash.com/photo-1483985988355-763728e1935b?w=800&h=500&fit=crop",
-  travel: "https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=800&h=500&fit=crop",
-  default: "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800&h=500&fit=crop",
-};
 
 interface Offer {
   id: string;
@@ -68,25 +60,23 @@ interface CategoryItem {
   icon: string | null;
 }
 
-function mapOfferFromDB(item: any): Offer {
+function mapOfferExplore(item: any): Offer {
+  const mapped = mapOfferFromAPI(item);
   return {
-    id: item.id,
-    title: item.title ?? "",
-    category: item.categories?.name ?? "",
-    mediaUrl: item.media_url ||
-      CATEGORY_FALLBACK_IMAGES[item.categories?.id] ||
-      (item.categories?.name ? CATEGORY_FALLBACK_IMAGES[item.categories.name.toLowerCase().replace(/[\s&]+/g, '_')] : undefined) ||
-      CATEGORY_FALLBACK_IMAGES.default,
-    venueName: item.venues?.name ?? "Venue",
-    offerValue: item.value_worth ?? "$0",
-    venueLogoUrl: item.venues?.logo_url ?? "",
-    venueAddress: item.venues?.address ?? "",
-    venueLat: item.venues?.latitude ?? null,
-    venueLon: item.venues?.longitude ?? null,
-    slotsRemaining: (item.max_redemptions ?? 0) - (item.current_redemptions ?? 0),
-    slotsTotal: item.max_redemptions ?? 0,
-    status: item.is_active ? (((item.current_redemptions ?? 0) >= (item.max_redemptions ?? 999)) ? "full" : "open") : "expired",
-    location: { address: item.venues?.address ?? "", city: item.venues?.city ?? "" },
+    id: mapped.id,
+    title: mapped.title,
+    category: mapped.category ?? "",
+    mediaUrl: mapped.mediaUrl,
+    venueName: mapped.venueName,
+    venueLogoUrl: mapped.venueLogoUrl,
+    venueAddress: mapped.location.address,
+    venueLat: mapped.location.lat || null,
+    venueLon: mapped.location.lon || null,
+    offerValue: mapped.offerValue,
+    slotsRemaining: mapped.slotsRemaining,
+    slotsTotal: mapped.slotsTotal,
+    status: mapped.status,
+    location: mapped.location,
   };
 }
 
@@ -118,19 +108,13 @@ export default function ExploreScreen() {
   }, [searchQuery]);
 
   const { data: allOffers, isLoading } = useQuery({
-    queryKey: ["explore-offers"],
+    queryKey: ["explore-offers", debouncedSearch, selectedCategory],
     queryFn: async () => {
-      const { data } = await supabase
-        .from("offers")
-        .select(`
-          id, title, category_id, media_url, value_worth,
-          max_redemptions, current_redemptions, is_active,
-          venues(id, name, address, city),
-          categories(id, name, color)
-        `)
-        .eq("is_active", true)
-        .order("created_at", { ascending: false });
-      return (data ?? []).map(mapOfferFromDB);
+      const params = new URLSearchParams();
+      if (debouncedSearch) params.set("search", debouncedSearch);
+      if (selectedCategory) params.set("category", selectedCategory);
+      const data = await apiRequestWithRefresh(`/offers?${params}`) as { offers?: any[] };
+      return (data.offers ?? []).map(mapOfferExplore);
     },
   });
 
@@ -146,27 +130,8 @@ export default function ExploreScreen() {
     },
   });
 
-  const filteredOffers = useMemo(() => {
-    let results = allOffers ?? [];
-    if (selectedCategory) {
-      results = results.filter((o: Offer) => {
-        if (o.category === selectedCategory) return true;
-        const slug = o.category.toLowerCase().replace(/[\s&]+/g, "_").replace(/[^a-z0-9_]/g, "");
-        return slug === selectedCategory;
-      });
-    }
-    if (debouncedSearch.trim()) {
-      const q = debouncedSearch.toLowerCase();
-      results = results.filter(
-        (o: Offer) =>
-          o.title.toLowerCase().includes(q) ||
-          o.venueName.toLowerCase().includes(q) ||
-          o.location.city.toLowerCase().includes(q) ||
-          o.location.address.toLowerCase().includes(q),
-      );
-    }
-    return results;
-  }, [allOffers, debouncedSearch, selectedCategory]);
+  // Server handles filtering now — just use allOffers directly
+  const filteredOffers = allOffers ?? [];
 
   const handleOfferPress = useCallback((offerId: string) => {
     router.push(`/offer/${offerId}`);
@@ -232,7 +197,7 @@ export default function ExploreScreen() {
 
       {/* Map View */}
       {viewMode === "map" ? (
-        <MapExploreView offers={filteredOffers} colors={colors} onOfferPress={handleOfferPress} />
+        <MapExploreView offers={filteredOffers as any} colors={colors} onOfferPress={handleOfferPress} />
       ) : isLoading ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color={colors.accent} />
