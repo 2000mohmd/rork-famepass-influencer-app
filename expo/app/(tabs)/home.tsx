@@ -28,15 +28,13 @@ import { useCurrency } from "@/hooks/useCurrency";
 import { useBookmarkStore } from "@/store/bookmarkStore";
 import type { ThemeColors } from "@/constants/colors";
 import { useAuth } from "@/app/_layout";
-import { supabase } from "@/lib/supabase";
 import { apiRequestWithRefresh } from "@/lib/api";
+import { resolveStorageUrl } from "@/lib/storage";
 import { mapOfferFromAPI } from "@/constants/mockData";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const OFFER_CARD_WIDTH = SCREEN_WIDTH * 0.68;
 const CATEGORY_ITEM_SIZE = (SCREEN_WIDTH - 64) / 4;
-
-
 
 interface Offer {
   id: string;
@@ -53,6 +51,7 @@ interface Offer {
   minEngagementRate: number;
   platforms: string[];
   offerValue: string;
+  isFree: boolean;
   slotsTotal: number;
   slotsRemaining: number;
   expiryDate: string;
@@ -70,6 +69,7 @@ interface CategoryItem {
   name: string;
   color: string;
   icon: string | null;
+  coverUrl: string | null;
 }
 
 function timeGreeting(): string {
@@ -84,37 +84,74 @@ function mapOfferHome(item: any): Offer {
   return {
     ...mapped,
     category: mapped.category ?? "",
-  };
+    venueLogoUrl: item.venues?.logo_url ?? "",
+  } as Offer;
 }
 
 export default function HomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { profile } = useAuth();
+  const { profile, session } = useAuth();
   const { colors } = useTheme();
 
-  const { data: offers, isLoading: offersLoading } = useQuery({
-    queryKey: ["home-offers"],
+  // Use the /home endpoint which returns profile, categories, featured_offers, offers_by_category
+  const { data: homeData, isLoading: homeLoading } = useQuery({
+    queryKey: ["home"],
     queryFn: async () => {
-      const data = await apiRequestWithRefresh("/offers?limit=10") as { offers?: any[] };
-      return (data.offers ?? []).map(mapOfferHome);
+      const data = await apiRequestWithRefresh("/home") as any;
+      return data;
     },
+    enabled: !!session,
   });
 
-  // Derive events from offers data (client-side filter for event type)
-  const events = useMemo(() => (offers ?? []).filter((o: Offer) => o.type === "event").slice(0, 5), [offers]);
+  // Extract offers from /home (featured_offers)
+  const offers = useMemo<Offer[]>(() => {
+    const raw = homeData?.featured_offers ?? homeData?.offers ?? [];
+    return (Array.isArray(raw) ? raw : []).map(mapOfferHome);
+  }, [homeData]);
 
-  const { data: categories } = useQuery<CategoryItem[]>({
-    queryKey: ["categories"],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("categories")
-        .select("id, name, color, icon")
-        .eq("is_active", true)
-        .order("name");
-      return (data ?? []) as CategoryItem[];
-    },
-  });
+  // Derive events from offers
+  const events = useMemo(() => offers.filter((o: Offer) => o.type === "event").slice(0, 5), [offers]);
+
+  // Extract categories from /home, with covers derived from offers_by_category
+  const categories = useMemo<CategoryItem[]>(() => {
+    const cats = homeData?.categories ?? [];
+    const byCat = (homeData?.offers_by_category ?? {}) as Record<string, any[]>;
+    return (Array.isArray(cats) ? cats : []).map((c: any) => {
+      const catOffers = byCat[c.id] ?? [];
+      const firstOfferCover = catOffers[0]?.cover_image_url || catOffers[0]?.image_url || catOffers[0]?.media_url;
+      return {
+        id: c.id,
+        name: c.name ?? "",
+        color: c.color ?? colors.accent,
+        icon: c.icon ?? null,
+        coverUrl: firstOfferCover ? resolveStorageUrl(firstOfferCover, "offers") : null,
+      };
+    });
+  }, [homeData, colors.accent]);
+
+  // Offers grouped by category name for sectioned display
+  const offersByCategory = useMemo(() => {
+    const grouped: Record<string, Offer[]> = {};
+    // Use offers_by_category from /home response if available
+    if (homeData?.offers_by_category) {
+      const catMap = new Map<string, string>(); // category_id -> category name
+      (categories ?? []).forEach((c) => catMap.set(c.id, c.name));
+      Object.entries(homeData.offers_by_category as Record<string, any[]>).forEach(([catId, catOffers]) => {
+        const catName = catMap.get(catId) ?? "Other";
+        if (!grouped[catName]) grouped[catName] = [];
+        (catOffers ?? []).forEach((o: any) => grouped[catName].push(mapOfferHome(o)));
+      });
+    } else {
+      // Fallback: group by category field on each offer
+      offers.forEach((offer: Offer) => {
+        const cat = offer.category || "Other";
+        if (!grouped[cat]) grouped[cat] = [];
+        grouped[cat].push(offer);
+      });
+    }
+    return grouped;
+  }, [homeData, offers, categories]);
 
   const handleOfferPress = useCallback((offerId: string) => {
     router.push(`/offer/${offerId}`);
@@ -131,17 +168,6 @@ export default function HomeScreen() {
         ? `${(profile.followers_count / 1000).toFixed(0)}K`
         : String(profile.followers_count))
     : "—";
-
-  // Group offers by category name for sectioned display
-  const offersByCategory = useMemo(() => {
-    const grouped: Record<string, Offer[]> = {};
-    (offers ?? []).forEach((offer: Offer) => {
-      const cat = offer.category || "Other";
-      if (!grouped[cat]) grouped[cat] = [];
-      grouped[cat].push(offer);
-    });
-    return grouped;
-  }, [offers]);
 
   const styles = useMemo(() => createStyles(colors), [colors]);
 
@@ -193,11 +219,11 @@ export default function HomeScreen() {
               <ArrowRight size={14} color={colors.accent} />
             </Pressable>
           </View>
-          {offersLoading ? (
+          {homeLoading && offers.length === 0 ? (
             <ActivityIndicator size="small" color={colors.accent} style={{ marginLeft: 20 }} />
           ) : (
             <FlatList
-              data={offers ?? []}
+              data={offers}
               horizontal
               showsHorizontalScrollIndicator={false}
               keyExtractor={(item) => item.id}
@@ -212,7 +238,7 @@ export default function HomeScreen() {
         </View>
 
         {/* Upcoming Events */}
-        {events && events.length > 0 && (
+        {events.length > 0 && (
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Upcoming Events</Text>
@@ -284,6 +310,11 @@ function OfferCard({ offer, colors, onPress }: { offer: Offer; colors: ThemeColo
     offer.status === "open" ? "Open"
     : offer.status === "full" ? "Full"
     : "Expired";
+
+  const displayValue = offer.isFree
+    ? "Free"
+    : `${currency} ${parseFloat(offer.offerValue.replace(/^[^0-9]*/, ""))?.toLocaleString() || offer.offerValue}`;
+
   const cardStyles = useMemo(() => createOfferCardStyles(colors), [colors]);
 
   return (
@@ -307,7 +338,11 @@ function OfferCard({ offer, colors, onPress }: { offer: Offer; colors: ThemeColo
       </View>
       <View style={cardStyles.offerCardContent}>
         <View style={cardStyles.venueRow}>
-          <Image source={{ uri: offer.venueLogoUrl }} style={cardStyles.venueLogo} />
+          {offer.venueLogoUrl ? (
+            <Image source={{ uri: resolveStorageUrl(offer.venueLogoUrl) ?? offer.venueLogoUrl }} style={cardStyles.venueLogo} />
+          ) : (
+            <View style={[cardStyles.venueLogo, { backgroundColor: colors.surfaceElevated }]} />
+          )}
           <View style={cardStyles.venueInfo}>
             <View style={cardStyles.venueNameRow}>
               <Text style={cardStyles.venueName} numberOfLines={1}>{offer.venueName}</Text>
@@ -327,7 +362,7 @@ function OfferCard({ offer, colors, onPress }: { offer: Offer; colors: ThemeColo
           <Text style={cardStyles.detailText} numberOfLines={1}>{offer.location.city}</Text>
         </View>
         <View style={cardStyles.offerFooter}>
-          <Text style={cardStyles.offerValue}>{currency} {parseFloat(offer.offerValue.replace(/^[^0-9]*/, ""))?.toLocaleString() || offer.offerValue}</Text>
+          <Text style={cardStyles.offerValue}>{displayValue}</Text>
           <Text style={cardStyles.slotsText}>{offer.slotsRemaining} / {offer.slotsTotal} slots</Text>
         </View>
       </View>
@@ -339,7 +374,11 @@ function CategoryItemView({ category, colors, onPress }: { category: CategoryIte
   return (
     <Pressable style={[localStyles.categoryItem, { width: CATEGORY_ITEM_SIZE }]} onPress={onPress}>
       <View style={[localStyles.categoryIconContainer, { backgroundColor: category.color + "18", borderColor: category.color + "30" }]}>
-        <View style={[localStyles.categoryDot, { backgroundColor: category.color }]} />
+        {category.coverUrl ? (
+          <Image source={{ uri: category.coverUrl }} style={localStyles.categoryCover} resizeMode="cover" />
+        ) : (
+          <View style={[localStyles.categoryDot, { backgroundColor: category.color }]} />
+        )}
       </View>
       <Text style={[localStyles.categoryLabel, { color: colors.textSecondary }]} numberOfLines={2}>{category.name}</Text>
     </Pressable>
@@ -348,7 +387,8 @@ function CategoryItemView({ category, colors, onPress }: { category: CategoryIte
 
 const localStyles = StyleSheet.create({
   categoryItem: { alignItems: "center", paddingVertical: 10, gap: 8 },
-  categoryIconContainer: { width: 52, height: 52, borderRadius: 16, alignItems: "center", justifyContent: "center", borderWidth: 1 },
+  categoryIconContainer: { width: 52, height: 52, borderRadius: 16, alignItems: "center", justifyContent: "center", borderWidth: 1, overflow: "hidden" },
+  categoryCover: { width: "100%", height: "100%", borderRadius: 16 },
   categoryDot: { width: 22, height: 22, borderRadius: 8 },
   categoryLabel: { fontSize: 11, fontWeight: "600", textAlign: "center", lineHeight: 14 },
 });

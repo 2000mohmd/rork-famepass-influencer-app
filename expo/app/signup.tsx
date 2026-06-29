@@ -96,7 +96,6 @@ export default function SignupScreen() {
   const [instagram, setInstagram] = useState("");
   const [tiktok, setTiktok] = useState("");
   const [youtube, setYoutube] = useState("");
-  const [followers, setFollowers] = useState("");
 
   // Step 5
   const [selectedNiches, setSelectedNiches] = useState<string[]>([]);
@@ -172,7 +171,7 @@ export default function SignupScreen() {
   const canStep2 = fullName.trim().length > 0 && city.trim().length > 0 && country.trim().length > 0;
   const hasAtLeastOneSocial =
     instagram.trim().length > 0 || tiktok.trim().length > 0;
-  const canStep4 = hasAtLeastOneSocial && (followers === "" || /^\d+$/.test(followers));
+  const canStep4 = hasAtLeastOneSocial;
   const canStep5 = selectedNiches.length > 0;
 
   const canContinue = (() => {
@@ -198,7 +197,7 @@ export default function SignupScreen() {
           full_name: fullName.trim(),
           instagram_handle: instagram.replace(/^@/, ""),
           tiktok_handle: tiktok.replace(/^@/, ""),
-          followers_count: Number(followers) || 0,
+          youtube_handle: youtube.replace(/^@/, ""),
           bio: bio.trim(),
           city: city.trim(),
           country: country.trim(),
@@ -230,7 +229,7 @@ export default function SignupScreen() {
     } finally {
       setLoading(false);
     }
-  }, [email, password, fullName, instagram, tiktok, youtube, followers, bio, city, country, latitude, longitude, selectedNiches, router]);
+  }, [email, password, fullName, instagram, tiktok, youtube, bio, city, country, latitude, longitude, selectedNiches, router]);
 
   const handleContinue = () => {
     if (step < TOTAL_STEPS) {
@@ -426,7 +425,7 @@ export default function SignupScreen() {
         {step === 4 && (
           <View style={styles.stepContent}>
             <Text style={styles.stepTitle}>Connect your socials</Text>
-            <Text style={styles.stepSubtitle}>At least one platform required</Text>
+            <Text style={styles.stepSubtitle}>At least one platform required. Followers will be auto-detected.</Text>
 
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Instagram handle</Text>
@@ -464,16 +463,10 @@ export default function SignupScreen() {
               />
             </View>
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Total follower count</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="e.g. 50000"
-                placeholderTextColor={colors.textMuted}
-                keyboardType="numeric"
-                value={followers}
-                onChangeText={setFollowers}
-              />
+            <View style={styles.followerNote}>
+              <Text style={styles.followerNoteText}>
+                Your follower count will be automatically detected from your connected social accounts.
+              </Text>
             </View>
           </View>
         )}
@@ -587,6 +580,8 @@ function createStyles(colors: ThemeColors) {
     skipButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 12 },
     skipText: { fontSize: 15, fontWeight: "600", color: colors.accentLight },
     nicheGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+    followerNote: { backgroundColor: colors.accent + "10", borderRadius: 12, padding: 12, borderWidth: 1, borderColor: colors.accent + "20" },
+    followerNoteText: { fontSize: 13, color: colors.textSecondary, fontWeight: "500", textAlign: "center" },
     nichePill: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardBorder, gap: 6 },
     nichePillActive: { backgroundColor: colors.accent, borderColor: colors.accent },
     nichePillText: { fontSize: 14, fontWeight: "600", color: colors.textSecondary },

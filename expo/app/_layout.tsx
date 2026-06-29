@@ -6,7 +6,8 @@ import React, { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
 
 import { supabase } from "@/lib/supabase";
-import { apiRequestWithRefresh } from "@/lib/api";
+import { apiRequest, apiRequestWithRefresh } from "@/lib/api";
+import { resolveStorageUrl } from "@/lib/storage";
 import { useTheme } from "@/hooks/useTheme";
 import { useCurrencyStore } from "@/store/currencyStore";
 import type { ThemeColors } from "@/constants/colors";
@@ -33,13 +34,7 @@ type AuthState = {
   isInfluencer: boolean;
 };
 
-/** Resolve a Supabase Storage path to a public URL, or return the raw URL. */
-function getPublicUrl(path: string | null): string | null {
-  if (!path) return null;
-  if (path.startsWith("http")) return path;
-  const { data } = supabase.storage.from("avatars").getPublicUrl(path);
-  return data.publicUrl;
-}
+
 
 export const [AuthProvider, useAuth] = createContextHook(() => {
   const [session, setSession] = useState<any | null>(null);
@@ -49,18 +44,33 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
   const router = useRouter();
 
   useEffect(() => {
-    // Fetch app settings (currency) on mount
+    // Fetch app settings (currency) on mount — try API first, then Supabase fallback
     (async () => {
       try {
-        const { data: settingsData } = await supabase
-          .from("app_settings")
-          .select("key, value");
-        if (settingsData) {
+        const data = await apiRequest("/home") as any;
+        if (data?.settings) {
           const map: Record<string, string> = {};
-          (settingsData as any[]).forEach((s) => { map[s.key] = s.value; });
-          useCurrencyStore.getState().setSettings(map);
+          if (typeof data.settings === "object" && !Array.isArray(data.settings)) {
+            Object.entries(data.settings as Record<string, unknown>).forEach(([k, v]) => {
+              if (typeof v === "string") map[k] = v;
+            });
+          }
+          if (map.currency) useCurrencyStore.getState().setSettings(map);
         }
       } catch {}
+      // Fallback: try Supabase app_settings table
+      if (!useCurrencyStore.getState().getCurrency() || useCurrencyStore.getState().getCurrency() === "AED") {
+        try {
+          const { data: settingsData } = await supabase
+            .from("app_settings")
+            .select("key, value");
+          if (settingsData) {
+            const map: Record<string, string> = {};
+            (settingsData as any[]).forEach((s: any) => { map[s.key] = s.value; });
+            useCurrencyStore.getState().setSettings(map);
+          }
+        } catch {}
+      }
     })();
 
     supabase.auth.getSession().then(({ data: { session: s } }) => {
@@ -119,7 +129,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       if (data?.profile) {
         setProfile({
           ...(data.profile as UserProfile),
-          avatar_url: getPublicUrl(data.profile.avatar_url),
+          avatar_url: resolveStorageUrl(data.profile.avatar_url, "avatars"),
         });
       } else {
         // Fallback: try direct Supabase query
@@ -131,7 +141,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         if (dbData) {
           setProfile({
             ...(dbData as UserProfile),
-            avatar_url: getPublicUrl(dbData.avatar_url),
+            avatar_url: resolveStorageUrl(dbData.avatar_url, "avatars"),
           });
         }
       }

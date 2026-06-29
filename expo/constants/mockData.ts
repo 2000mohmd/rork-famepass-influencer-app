@@ -76,6 +76,7 @@ export interface Offer {
   minEngagementRate: number;
   platforms: Platform[];
   offerValue: string;
+  isFree: boolean;
   slotsTotal: number;
   slotsRemaining: number;
   expiryDate: string;
@@ -233,6 +234,23 @@ export function checkEligibility(
 
 /** Maps the influencer-api edge function response shape to the Offer interface. */
 export function mapOfferFromAPI(item: any): Offer {
+  // Determine if the offer is free (complimentary) or paid (discount)
+  const isFree =
+    item.is_free === true ||
+    item.offer_type === "free" ||
+    item.offer_type === "complimentary" ||
+    item.discount_type === "complimentary";
+
+  // Build the offer value string
+  let offerValue = "Free";
+  if (!isFree) {
+    if (item.discount_value) {
+      offerValue = String(item.discount_value);
+    } else if (item.value_worth && item.value_worth !== "0" && item.value_worth !== 0) {
+      offerValue = String(item.value_worth);
+    }
+  }
+
   return {
     id: item.id,
     title: item.title ?? "",
@@ -243,7 +261,7 @@ export function mapOfferFromAPI(item: any): Offer {
       item.image_url ||
       item.media_url ||
       "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800&h=500&fit=crop",
-    mediaType: item.media_type ?? "image",
+    mediaType: (item.media_type as "image" | "video") ?? "image",
     venueId: item.venues?.id ?? item.venue_id ?? "",
     venueName: item.venues?.name ?? "Venue",
     venueLogoUrl: item.venues?.logo_url ?? "",
@@ -251,9 +269,8 @@ export function mapOfferFromAPI(item: any): Offer {
     minFollowers: item.min_followers ?? 0,
     minEngagementRate: item.min_engagement_rate ?? 0,
     platforms: item.platforms ?? [],
-    offerValue: item.discount_value
-      ? `$${item.discount_value}`
-      : item.value_worth ?? "Free",
+    offerValue,
+    isFree,
     slotsTotal: item.max_redemptions ?? 0,
     slotsRemaining: Math.max(
       0,
@@ -278,7 +295,7 @@ export function mapOfferFromAPI(item: any): Offer {
           (item.current_redemptions ?? 0) >= (item.max_redemptions ?? 999)
         ? "full"
         : "open",
-    type: item.type ?? (item.offer_type === "event" ? "event" : "offer"),
+    type: (item.offer_type === "event" ? "event" : "offer") as "offer" | "event",
     eventDate: item.event_date ?? undefined,
     eventTime: item.event_time ?? undefined,
   };
