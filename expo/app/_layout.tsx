@@ -127,9 +127,15 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       const data = await apiRequestWithRefresh("/profile") as { profile?: UserProfile };
 
       if (data?.profile) {
+        const avatarPath = data.profile.avatar_url;
+        // Try avatars bucket first, then profiles, then pass-through if already a full URL
+        const resolvedAvatar =
+          resolveStorageUrl(avatarPath, "avatars") ??
+          resolveStorageUrl(avatarPath, "profiles") ??
+          (avatarPath?.startsWith("http") ? avatarPath : null);
         setProfile({
           ...(data.profile as UserProfile),
-          avatar_url: resolveStorageUrl(data.profile.avatar_url, "avatars"),
+          avatar_url: resolvedAvatar,
         });
       } else {
         // Fallback: try direct Supabase query
@@ -139,9 +145,14 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
           .eq("user_id", userId)
           .single();
         if (dbData) {
+          const avatarPath = (dbData as any).avatar_url;
+          const resolvedAvatar =
+            resolveStorageUrl(avatarPath, "avatars") ??
+            resolveStorageUrl(avatarPath, "profiles") ??
+            (avatarPath?.startsWith("http") ? avatarPath : null);
           setProfile({
             ...(dbData as UserProfile),
-            avatar_url: resolveStorageUrl(dbData.avatar_url, "avatars"),
+            avatar_url: resolvedAvatar,
           });
         }
       }

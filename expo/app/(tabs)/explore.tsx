@@ -28,8 +28,8 @@ import { useCurrency } from "@/hooks/useCurrency";
 import { useBookmarkStore } from "@/store/bookmarkStore";
 import type { ThemeColors } from "@/constants/colors";
 import { useAuth } from "@/app/_layout";
-import { supabase } from "@/lib/supabase";
 import { apiRequestWithRefresh } from "@/lib/api";
+import { resolveStorageUrl } from "@/lib/storage";
 import { mapOfferFromAPI } from "@/constants/mockData";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -110,12 +110,14 @@ export default function ExploreScreen() {
   const { data: categories } = useQuery<CategoryItem[]>({
     queryKey: ["categories"],
     queryFn: async () => {
-      const { data } = await supabase
-        .from("categories")
-        .select("id, name, color, icon")
-        .eq("is_active", true)
-        .order("name");
-      return (data ?? []) as CategoryItem[];
+      const data = await apiRequestWithRefresh("/categories") as any;
+      const cats = Array.isArray(data) ? data : (data?.categories ?? []);
+      return (cats as any[]).map((c: any) => ({
+        id: c.id,
+        name: c.name ?? "",
+        color: c.color ?? "#B8923A",
+        icon: c.icon ?? null,
+      }));
     },
   });
 

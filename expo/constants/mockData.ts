@@ -232,6 +232,8 @@ export function checkEligibility(
   return { eligible: reasons.length === 0, reasons };
 }
 
+import { resolveStorageUrl } from "@/lib/storage";
+
 /** Maps the influencer-api edge function response shape to the Offer interface. */
 export function mapOfferFromAPI(item: any): Offer {
   // Determine if the offer is free (complimentary) or paid (discount)
@@ -257,14 +259,14 @@ export function mapOfferFromAPI(item: any): Offer {
     description: item.description ?? "",
     category: ((item.categories?.name ?? item.category ?? "") as Category),
     mediaUrl:
-      item.cover_image_url ||
-      item.image_url ||
-      item.media_url ||
-      "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800&h=500&fit=crop",
+      resolveStorageUrl(item.cover_image_url, "offers") ??
+      resolveStorageUrl(item.image_url, "offers") ??
+      (item.media_url ||
+      "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800&h=500&fit=crop"),
     mediaType: (item.media_type as "image" | "video") ?? "image",
     venueId: item.venues?.id ?? item.venue_id ?? "",
     venueName: item.venues?.name ?? "Venue",
-    venueLogoUrl: item.venues?.logo_url ?? "",
+    venueLogoUrl: resolveStorageUrl(item.venues?.logo_url, "venues") ?? item.venues?.logo_url ?? "",
     venueVerified: item.venues?.verified ?? false,
     minFollowers: item.min_followers ?? 0,
     minEngagementRate: item.min_engagement_rate ?? 0,

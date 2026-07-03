@@ -113,22 +113,30 @@ export default function HomeScreen() {
   // Derive events from offers
   const events = useMemo(() => offers.filter((o: Offer) => o.type === "event").slice(0, 5), [offers]);
 
-  // Extract categories from /home, with covers derived from offers_by_category
+  // Fetch categories from /categories endpoint which includes cover_image
+  const { data: categoriesData } = useQuery({
+    queryKey: ["categories-with-covers"],
+    queryFn: async () => {
+      const data = await apiRequestWithRefresh("/categories") as any;
+      return Array.isArray(data) ? data : (data?.categories ?? []);
+    },
+    enabled: !!session,
+  });
+
+  // Extract categories with covers from the /categories endpoint
   const categories = useMemo<CategoryItem[]>(() => {
-    const cats = homeData?.categories ?? [];
-    const byCat = (homeData?.offers_by_category ?? {}) as Record<string, any[]>;
+    const cats = categoriesData ?? homeData?.categories ?? [];
     return (Array.isArray(cats) ? cats : []).map((c: any) => {
-      const catOffers = byCat[c.id] ?? [];
-      const firstOfferCover = catOffers[0]?.cover_image_url || catOffers[0]?.image_url || catOffers[0]?.media_url;
+      const coverPath = c.cover_image || c.cover_url || c.image_url;
       return {
         id: c.id,
         name: c.name ?? "",
         color: c.color ?? colors.accent,
         icon: c.icon ?? null,
-        coverUrl: firstOfferCover ? resolveStorageUrl(firstOfferCover, "offers") : null,
+        coverUrl: coverPath ? resolveStorageUrl(coverPath, "categories") ?? resolveStorageUrl(coverPath, "offers") : null,
       };
     });
-  }, [homeData, colors.accent]);
+  }, [categoriesData, homeData, colors.accent]);
 
   // Offers grouped by category name for sectioned display
   const offersByCategory = useMemo(() => {
