@@ -5,6 +5,7 @@ import {
   Clock,
   Heart,
   MapPin,
+  Search,
   Star,
   TrendingUp,
 } from "lucide-react-native";
@@ -30,7 +31,7 @@ import type { ThemeColors } from "@/constants/colors";
 import { useAuth } from "@/app/_layout";
 import { apiRequestWithRefresh } from "@/lib/api";
 import { resolveStorageUrl } from "@/lib/storage";
-import { mapOfferFromAPI } from "@/constants/mockData";
+import { mapOfferFromAPI } from "@/constants/offerMapper";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const OFFER_CARD_WIDTH = SCREEN_WIDTH * 0.68;
@@ -72,11 +73,13 @@ interface CategoryItem {
   coverUrl: string | null;
 }
 
-function timeGreeting(): string {
-  const hour = new Date().getHours();
-  if (hour < 12) return "Good morning";
-  if (hour < 17) return "Good afternoon";
-  return "Good evening";
+interface VenueItem {
+  id: string;
+  name: string;
+  city: string;
+  category: string;
+  logoUrl: string | null;
+  coverUrl: string | null;
 }
 
 function mapOfferHome(item: any): Offer {
@@ -138,6 +141,19 @@ export default function HomeScreen() {
     });
   }, [categoriesData, homeData, colors.accent]);
 
+  // Venues returned by /home (already filtered to approved, active venues)
+  const venues = useMemo<VenueItem[]>(() => {
+    const raw = homeData?.venues ?? [];
+    return (Array.isArray(raw) ? raw : []).map((v: any) => ({
+      id: v.id,
+      name: v.name ?? "Venue",
+      city: v.city ?? "",
+      category: v.category ?? "",
+      logoUrl: resolveStorageUrl(v.logo_url, "venues"),
+      coverUrl: resolveStorageUrl(v.cover_image_url, "venues"),
+    }));
+  }, [homeData]);
+
   // Offers grouped by category name for sectioned display
   const offersByCategory = useMemo(() => {
     const grouped: Record<string, Offer[]> = {};
@@ -169,6 +185,11 @@ export default function HomeScreen() {
     router.push({ pathname: "/(tabs)/explore", params: { category: categoryId } });
   }, [router]);
 
+  const handleVenuePress = useCallback((venue: VenueItem) => {
+    // No dedicated venue screen yet — open Explore pre-filtered to this venue's offers.
+    router.push({ pathname: "/(tabs)/explore", params: { search: venue.name } });
+  }, [router]);
+
   const followersFormatted = profile?.followers_count
     ? (profile.followers_count >= 1000000
       ? `${(profile.followers_count / 1000000).toFixed(1)}M`
@@ -182,40 +203,50 @@ export default function HomeScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Header */}
+        {/* Header — clean wordmark + avatar */}
         <View style={styles.header}>
-          <View style={styles.greetingBlock}>
-            <Text style={styles.greeting}>{timeGreeting()},</Text>
-            <Text style={styles.name}>{profile?.full_name ?? "Creator"}</Text>
+          <View style={styles.wordmark}>
+            <Text style={styles.wordFame}>Fame</Text>
+            <Text style={styles.wordPass}>Pass</Text>
           </View>
           <Pressable onPress={() => router.push("/(tabs)/profile")} style={styles.avatarButton}>
             {profile?.avatar_url ? (
               <Image source={{ uri: profile.avatar_url }} style={styles.avatar} />
             ) : (
-              <View style={[styles.avatar, styles.avatarPlaceholder]} />
+              <View style={[styles.avatar, styles.avatarPlaceholder]}>
+                <Text style={styles.avatarInitial}>
+                  {(profile?.full_name ?? "C").charAt(0).toUpperCase()}
+                </Text>
+              </View>
             )}
-            <View style={styles.avatarGlow} />
           </Pressable>
         </View>
 
-        {/* Quick Stats */}
-        <View style={styles.quickStats}>
-          <View style={styles.statCard}>
-            <TrendingUp size={16} color={colors.green} />
-            <Text style={styles.statValue}>{profile?.engagement_rate ? `${profile.engagement_rate}%` : "—"}</Text>
-            <Text style={styles.statLabel}>Engagement</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Star size={16} color={colors.accent} />
+        {/* Search bar → Explore */}
+        <Pressable style={styles.searchBar} onPress={() => router.push("/(tabs)/explore")}>
+          <Search size={18} color={colors.textMuted} />
+          <Text style={styles.searchPlaceholder}>Search offers, venues, cities…</Text>
+        </Pressable>
+
+        {/* Wallet + stats card */}
+        <View style={styles.statsCard}>
+          <View style={styles.statCol}>
+            <Star size={15} color={colors.accent} fill={colors.accent} />
             <Text style={styles.statValue}>{followersFormatted}</Text>
             <Text style={styles.statLabel}>Followers</Text>
           </View>
-          <View style={styles.statCard}>
-            <Calendar size={16} color={colors.accentLight} />
-            <Pressable onPress={() => router.push("/(tabs)/attendance")}>
-              <Text style={[styles.statLabel, { color: colors.accentLight, marginTop: 6 }]}>My Bookings</Text>
-            </Pressable>
+          <View style={styles.statDivider} />
+          <View style={styles.statCol}>
+            <TrendingUp size={15} color={colors.green} />
+            <Text style={styles.statValue}>{profile?.engagement_rate ? `${profile.engagement_rate}%` : "—"}</Text>
+            <Text style={styles.statLabel}>Engagement</Text>
           </View>
+          <View style={styles.statDivider} />
+          <Pressable style={styles.statCol} onPress={() => router.push("/(tabs)/attendance")}>
+            <Calendar size={15} color={colors.accentLight} />
+            <Text style={[styles.statValue, { fontSize: 15, marginTop: 9 }]}>Bookings</Text>
+            <Text style={[styles.statLabel, { color: colors.accent }]}>View all →</Text>
+          </Pressable>
         </View>
 
         {/* Featured Offers */}
@@ -244,6 +275,29 @@ export default function HomeScreen() {
             />
           )}
         </View>
+
+        {/* Venues */}
+        {venues.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Venues</Text>
+              <Pressable style={styles.seeAllButton} onPress={() => router.push("/(tabs)/explore")}>
+                <Text style={styles.seeAllText}>See all</Text>
+                <ArrowRight size={14} color={colors.accent} />
+              </Pressable>
+            </View>
+            <FlatList
+              data={venues}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={styles.horizontalScrollContent}
+              renderItem={({ item }) => (
+                <VenueCard venue={item} colors={colors} onPress={() => handleVenuePress(item)} />
+              )}
+            />
+          </View>
+        )}
 
         {/* Upcoming Events */}
         {events.length > 0 && (
@@ -393,6 +447,33 @@ function CategoryItemView({ category, colors, onPress }: { category: CategoryIte
   );
 }
 
+function VenueCard({ venue, colors, onPress }: { venue: VenueItem; colors: ThemeColors; onPress: () => void }) {
+  const s = useMemo(() => createVenueCardStyles(colors), [colors]);
+  return (
+    <Pressable style={s.card} onPress={onPress}>
+      <View style={s.cover}>
+        {venue.coverUrl ? (
+          <Image source={{ uri: venue.coverUrl }} style={s.coverImage} resizeMode="cover" />
+        ) : (
+          <View style={[s.coverImage, s.coverPlaceholder]} />
+        )}
+        {venue.logoUrl ? (
+          <Image source={{ uri: venue.logoUrl }} style={s.logo} />
+        ) : (
+          <View style={[s.logo, s.logoPlaceholder]} />
+        )}
+      </View>
+      <View style={s.body}>
+        <Text style={s.name} numberOfLines={1}>{venue.name}</Text>
+        <View style={s.metaRow}>
+          <MapPin size={12} color={colors.textMuted} />
+          <Text style={s.meta} numberOfLines={1}>{venue.city || venue.category || "—"}</Text>
+        </View>
+      </View>
+    </Pressable>
+  );
+}
+
 const localStyles = StyleSheet.create({
   categoryItem: { alignItems: "center", paddingVertical: 10, gap: 8 },
   categoryIconContainer: { width: 52, height: 52, borderRadius: 16, alignItems: "center", justifyContent: "center", borderWidth: 1, overflow: "hidden" },
@@ -401,28 +482,46 @@ const localStyles = StyleSheet.create({
   categoryLabel: { fontSize: 11, fontWeight: "600", textAlign: "center", lineHeight: 14 },
 });
 
+function createVenueCardStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    card: { width: 150, backgroundColor: colors.card, borderRadius: 16, overflow: "hidden", borderWidth: 1, borderColor: colors.cardBorder },
+    cover: { height: 84, position: "relative" },
+    coverImage: { width: "100%", height: "100%" },
+    coverPlaceholder: { backgroundColor: colors.surfaceElevated },
+    logo: { position: "absolute", bottom: -16, left: 12, width: 40, height: 40, borderRadius: 12, borderWidth: 2, borderColor: colors.card, backgroundColor: colors.surfaceElevated },
+    logoPlaceholder: { backgroundColor: colors.surfaceElevated },
+    body: { paddingTop: 22, paddingBottom: 12, paddingHorizontal: 12, gap: 4 },
+    name: { fontSize: 14, fontWeight: "700", color: colors.text },
+    metaRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+    meta: { fontSize: 12, color: colors.textMuted, flex: 1 },
+  });
+}
+
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     scrollView: { flex: 1 },
     scrollContent: { paddingBottom: 40 },
-    header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 20, paddingTop: 16, paddingBottom: 20 },
-    greetingBlock: { flex: 1 },
-    greeting: { fontSize: 16, color: colors.textSecondary, fontWeight: "500" },
-    name: { fontSize: 26, fontWeight: "700", color: colors.text, marginTop: 2 },
+    header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 20, paddingTop: 14, paddingBottom: 14 },
+    wordmark: { flexDirection: "row", alignItems: "baseline" },
+    wordFame: { fontFamily: "serif", fontSize: 24, fontWeight: "700", color: colors.text },
+    wordPass: { fontFamily: "serif", fontStyle: "italic", fontSize: 24, fontWeight: "700", color: colors.accent },
     avatarButton: { position: "relative" },
-    avatar: { width: 48, height: 48, borderRadius: 24, borderWidth: 2, borderColor: colors.accent + "60" },
-    avatarPlaceholder: { backgroundColor: colors.surfaceElevated },
-    avatarGlow: { position: "absolute", top: -4, left: -4, right: -4, bottom: -4, borderRadius: 28, backgroundColor: colors.accent + "15", zIndex: -1 },
-    quickStats: { flexDirection: "row", paddingHorizontal: 20, gap: 10, marginBottom: 28 },
-    statCard: { flex: 1, backgroundColor: colors.card, borderRadius: 16, padding: 14, alignItems: "center", borderWidth: 1, borderColor: colors.cardBorder },
+    avatar: { width: 42, height: 42, borderRadius: 21, borderWidth: 2, borderColor: colors.accent, alignItems: "center", justifyContent: "center" },
+    avatarPlaceholder: { backgroundColor: colors.accent + "18" },
+    avatarInitial: { fontFamily: "serif", fontSize: 17, fontWeight: "700", color: colors.accent },
+    searchBar: { flexDirection: "row", alignItems: "center", gap: 10, marginHorizontal: 20, marginBottom: 24, backgroundColor: colors.inputBackground, borderRadius: 14, borderWidth: 1, borderColor: colors.inputBorder, paddingHorizontal: 16, height: 46 },
+    searchPlaceholder: { fontSize: 15, color: colors.textMuted },
+    statsCard: { flexDirection: "row", alignItems: "center", marginHorizontal: 20, marginBottom: 30, backgroundColor: colors.card, borderRadius: 18, borderWidth: 1, borderColor: colors.cardBorder, paddingVertical: 16 },
+    statCol: { flex: 1, alignItems: "center", gap: 2 },
+    statDivider: { width: 1, alignSelf: "stretch", marginVertical: 8, backgroundColor: colors.cardBorder },
     statValue: { fontSize: 18, fontWeight: "700", color: colors.text, marginTop: 8 },
-    statLabel: { fontSize: 11, color: colors.textSecondary, marginTop: 2, fontWeight: "500" },
-    section: { marginBottom: 28 },
-    sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 20, marginBottom: 14 },
-    sectionTitle: { fontSize: 20, fontWeight: "700", color: colors.text },
+    statLabel: { fontSize: 11, color: colors.textSecondary, marginTop: 2, fontWeight: "600" },
+    section: { marginBottom: 30 },
+    sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", paddingHorizontal: 20, marginBottom: 14 },
+    sectionTitle: { fontFamily: "serif", fontSize: 22, fontWeight: "700", color: colors.text },
     seeAllButton: { flexDirection: "row", alignItems: "center", gap: 4 },
-    seeAllText: { fontSize: 14, fontWeight: "600", color: colors.accent },
+    seeAllText: { fontSize: 13, fontWeight: "700", color: colors.accent },
     horizontalScrollContent: { paddingLeft: 20, paddingRight: 8, gap: 12 },
     categoryGrid: { flexDirection: "row", flexWrap: "wrap", paddingHorizontal: 16, gap: 4 },
   });

@@ -24,7 +24,6 @@ import { useTheme } from "@/hooks/useTheme";
 import { useCurrency } from "@/hooks/useCurrency";
 import type { ThemeColors } from "@/constants/colors";
 import { useAuth } from "@/app/_layout";
-import { supabase } from "@/lib/supabase";
 import { apiRequestWithRefresh } from "@/lib/api";
 
 type BookingTab = "upcoming" | "past" | "cancelled";
@@ -97,17 +96,12 @@ export default function AttendanceScreen() {
 
   const checkInMutation = useMutation({
     mutationFn: async ({ bookingId, code }: { bookingId: string; code: string }) => {
-      const { data: booking } = await supabase
-        .from("bookings")
-        .select("qr_code")
-        .eq("id", bookingId)
-        .single();
-
-      if (booking?.qr_code && booking.qr_code !== code) {
-        throw new Error("Invalid code. Please check the code from the venue.");
-      }
-
-      await supabase.from("bookings").update({ status: "checked_in" }).eq("id", bookingId);
+      // Route through the API so the check-in is validated + written server-side
+      // (the code is sent along for the backend to verify against the venue's).
+      await apiRequestWithRefresh(`/bookings/${bookingId}/checkin`, {
+        method: "POST",
+        body: { code },
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["bookings"] });

@@ -21,7 +21,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { useCurrency } from "@/hooks/useCurrency";
 import type { ThemeColors } from "@/constants/colors";
 import { useAuth } from "@/app/_layout";
-import { supabase } from "@/lib/supabase";
+import { apiRequestWithRefresh } from "@/lib/api";
 
 type InviteTab = "pending" | "accepted" | "declined";
 
@@ -58,18 +58,8 @@ export default function InvitationsScreen() {
     queryKey: ["invitations", activeTab],
     queryFn: async () => {
       if (!session?.user?.id) return [];
-      const { data, error } = await supabase
-        .from("invitations")
-        .select(`
-          *,
-          venues:venue_id (name, logo_url),
-          offers:offer_id (title)
-        `)
-        .eq("influencer_id", session.user.id)
-        .eq("status", activeTab)
-        .order("created_at", { ascending: false });
-      if (error) return [];
-      return (data ?? []).map((inv: any) => ({
+      const data = await apiRequestWithRefresh(`/invitations?status=${activeTab}`) as { invitations?: any[] };
+      return (data.invitations ?? []).map((inv: any) => ({
         ...inv,
         venue_name: inv.venues?.name ?? "Venue",
         venue_logo_url: inv.venues?.logo_url ?? null,
@@ -79,24 +69,28 @@ export default function InvitationsScreen() {
     enabled: !!session?.user?.id,
   });
 
+  // The API handles the booking creation + QR code automatically when an
+  // invitation is accepted, so the app only needs to POST the response.
   const acceptMutation = useMutation({
     mutationFn: async (invitationId: string) => {
-      await supabase.from("invitations").update({ status: "accepted" }).eq("id", invitationId);
-      await supabase.from("bookings").insert({
-        influencer_id: session?.user?.id,
-        invitation_id: invitationId,
-        status: "confirmed",
+      await apiRequestWithRefresh(`/invitations/${invitationId}/respond`, {
+        method: "POST",
+        body: { action: "accepted" },
       });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["invitations"] });
       queryClient.invalidateQueries({ queryKey: ["pending-invitations-count"] });
+      queryClient.invalidateQueries({ queryKey: ["bookings"] });
     },
   });
 
   const declineMutation = useMutation({
     mutationFn: async (invitationId: string) => {
-      await supabase.from("invitations").update({ status: "declined" }).eq("id", invitationId);
+      await apiRequestWithRefresh(`/invitations/${invitationId}/respond`, {
+        method: "POST",
+        body: { action: "declined" },
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["invitations"] });

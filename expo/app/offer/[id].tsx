@@ -23,7 +23,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -36,9 +35,9 @@ import type { ThemeColors } from "@/constants/colors";
 import { useAuth } from "@/app/_layout";
 import { supabase } from "@/lib/supabase";
 import { apiRequestWithRefresh } from "@/lib/api";
-import { mapOfferFromAPI } from "@/constants/mockData";
-import type { Platform } from "@/constants/mockData";
-import { PLATFORM_NAMES } from "@/constants/mockData";
+import { mapOfferFromAPI } from "@/constants/offerMapper";
+import type { Platform } from "@/constants/offerMapper";
+import { PLATFORM_NAMES } from "@/constants/offerMapper";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -105,8 +104,8 @@ export default function OfferDetailScreen() {
 
   const [applied, setApplied] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [visitDate, setVisitDate] = useState("");
-  const [visitTime, setVisitTime] = useState("");
+  const [selectedDate, setSelectedDate] = useState<string | null>(null); // "YYYY-MM-DD"
+  const [selectedTime, setSelectedTime] = useState<string | null>(null); // "HH:MM"
   const [showSuccess, setShowSuccess] = useState(false);
   const [qrCode, setQrCode] = useState<string | null>(null);
 
@@ -162,17 +161,22 @@ export default function OfferDetailScreen() {
     enabled: !!id && !!session?.user?.id,
   });
 
-  // Apply via API
+  // Apply via API — sends the creator's chosen visit date/time as scheduled_date
   const applyMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (scheduledDate: string) => {
       if (!id) throw new Error("No offer ID");
-      return apiRequestWithRefresh(`/offers/${id}/accept`, { method: "POST" }) as any;
+      return apiRequestWithRefresh(`/offers/${id}/accept`, {
+        method: "POST",
+        body: { scheduled_date: scheduledDate },
+      }) as any;
     },
     onSuccess: (data) => {
       setQrCode(data.qr_code ?? null);
       setShowSuccess(true);
       setShowDatePicker(false);
+      setApplied(true);
       queryClient.invalidateQueries({ queryKey: ["offer-redemption", id] });
+      queryClient.invalidateQueries({ queryKey: ["bookings"] });
     },
     onError: (e: any) => {
       Alert.alert("Error", e.message ?? "Failed to apply");
@@ -181,6 +185,52 @@ export default function OfferDetailScreen() {
 
   // ALL hooks must be above this line — styles useMemo before any early returns
   const styles = useMemo(() => createStyles(colors), [colors]);
+
+  // Build up to 14 selectable dates, from today (or the offer start) to its expiry.
+  const dateOptions = useMemo(() => {
+    const out: { value: string; weekday: string; day: string; month: string }[] = [];
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const start = offer?.startDate ? new Date(offer.startDate) : today;
+    let cursor = start > today ? start : today;
+    cursor = new Date(cursor);
+    cursor.setHours(0, 0, 0, 0);
+    const end = offer?.expiryDate ? new Date(offer.expiryDate) : null;
+    for (let i = 0; i < 14; i++) {
+      if (end && cursor > end) break;
+      const y = cursor.getFullYear();
+      const m = String(cursor.getMonth() + 1).padStart(2, "0");
+      const d = String(cursor.getDate()).padStart(2, "0");
+      out.push({
+        value: `${y}-${m}-${d}`,
+        weekday: cursor.toLocaleDateString("en-US", { weekday: "short" }),
+        day: String(cursor.getDate()),
+        month: cursor.toLocaleDateString("en-US", { month: "short" }),
+      });
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return out;
+  }, [offer?.startDate, offer?.expiryDate]);
+
+  const timeOptions = useMemo(
+    () => ["12:00", "13:00", "15:00", "17:00", "18:00", "19:00", "20:00", "21:00"],
+    [],
+  );
+
+  const canSubmitVisit = !!selectedDate && !!selectedTime;
+
+  const submitVisit = useCallback(() => {
+    if (!selectedDate || !selectedTime) return;
+    // Combine into an ISO timestamp for the booking's scheduled_date.
+    const iso = new Date(`${selectedDate}T${selectedTime}:00`).toISOString();
+    applyMutation.mutate(iso);
+  }, [selectedDate, selectedTime, applyMutation]);
+
+  const openDatePicker = useCallback(() => {
+    setSelectedDate(null);
+    setSelectedTime(null);
+    setShowDatePicker(true);
+  }, []);
 
   if (isLoading) {
     return (
@@ -212,6 +262,15 @@ export default function OfferDetailScreen() {
     : "Expired";
   const isFull = offer.status === "full" || (offer.slotsRemaining <= 0 && offer.status === "open");
   const buttonDisabled = offer.status !== "open" || (alreadyApplied ?? false) || applied || isFull;
+
+  // "Free" (or any non-numeric value) shows as-is; numeric values get the currency prefix.
+  const numericValue = parseFloat(String(offer.offerValue).replace(/[^0-9.]/g, ""));
+  const valueDisplay = isNaN(numericValue)
+    ? (offer.offerValue || "Free")
+    : `${currency} ${numericValue.toLocaleString()}`;
+  const expiryDisplay = offer.expiryDate
+    ? new Date(offer.expiryDate).toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" })
+    : "—";
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -288,7 +347,7 @@ export default function OfferDetailScreen() {
           <Text style={styles.sectionLabel}>Offer Details</Text>
           <View style={styles.detailsGrid}>
             <View style={styles.detailCard}>
-              <Text style={styles.detailCardValue}>{currency} {parseFloat(offer.offerValue.replace(/^[^0-9]*/, ""))?.toLocaleString() || offer.offerValue}</Text>
+              <Text style={styles.detailCardValue}>{valueDisplay}</Text>
               <Text style={styles.detailCardLabel}>Value / Worth</Text>
             </View>
             <View style={styles.detailCard}>
@@ -301,7 +360,7 @@ export default function OfferDetailScreen() {
             </View>
             <View style={styles.detailCard}>
               <Calendar size={14} color={colors.textSecondary} />
-              <Text style={styles.detailCardDate}>{offer.expiryDate}</Text>
+              <Text style={styles.detailCardDate}>{expiryDisplay}</Text>
               <Text style={styles.detailCardLabel}>Expiry Date</Text>
             </View>
           </View>
@@ -427,64 +486,81 @@ export default function OfferDetailScreen() {
         ) : (
           <Pressable
             style={[styles.ctaButton, applyMutation.isPending && { opacity: 0.6 }]}
-            onPress={() => setShowDatePicker(true)}
+            onPress={openDatePicker}
             disabled={applyMutation.isPending}
           >
             {applyMutation.isPending ? (
               <ActivityIndicator size="small" color={colors.background} />
             ) : (
-              <Text style={styles.ctaText}>Request to Attend</Text>
+              <Text style={styles.ctaText}>Book This Offer</Text>
             )}
           </Pressable>
         )}
       </View>
 
-      {/* Date Picker Modal */}
-      <RNModal visible={showDatePicker} transparent animationType="fade" onRequestClose={() => setShowDatePicker(false)}>
+      {/* Booking date/time picker */}
+      <RNModal visible={showDatePicker} transparent animationType="slide" onRequestClose={() => setShowDatePicker(false)}>
         <Pressable style={styles.modalOverlay} onPress={() => setShowDatePicker(false)}>
           <Pressable style={styles.dateModal} onPress={() => {}}>
-            <Calendar size={32} color={colors.accent} />
-            <Text style={styles.dateModalTitle}>Choose visit date</Text>
-            <Text style={styles.dateModalSubtitle}>Let the venue know when you plan to visit</Text>
+            <Calendar size={30} color={colors.accent} />
+            <Text style={styles.dateModalTitle}>Choose your visit</Text>
+            <Text style={styles.dateModalSubtitle}>Pick when you plan to attend</Text>
 
-            <View style={styles.dateInputRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.dateInputLabel}>Date</Text>
-                <TextInput
-                  style={styles.dateInput}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor={colors.textMuted}
-                  value={visitDate}
-                  onChangeText={setVisitDate}
-                  autoCapitalize="none"
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.dateInputLabel}>Time (optional)</Text>
-                <TextInput
-                  style={styles.dateInput}
-                  placeholder="e.g. 19:00"
-                  placeholderTextColor={colors.textMuted}
-                  value={visitTime}
-                  onChangeText={setVisitTime}
-                  autoCapitalize="none"
-                />
-              </View>
+            <Text style={styles.pickerLabel}>Date</Text>
+            {dateOptions.length === 0 ? (
+              <Text style={styles.pickerEmpty}>No available dates for this offer.</Text>
+            ) : (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.pickerRow}
+              >
+                {dateOptions.map((d) => {
+                  const active = selectedDate === d.value;
+                  return (
+                    <Pressable
+                      key={d.value}
+                      style={[styles.dateChip, active && styles.dateChipActive]}
+                      onPress={() => setSelectedDate(d.value)}
+                    >
+                      <Text style={[styles.dateChipWeekday, active && styles.dateChipTextActive]}>{d.weekday}</Text>
+                      <Text style={[styles.dateChipDay, active && styles.dateChipTextActive]}>{d.day}</Text>
+                      <Text style={[styles.dateChipMonth, active && styles.dateChipTextActive]}>{d.month}</Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            )}
+
+            <Text style={styles.pickerLabel}>Time</Text>
+            <View style={styles.timeGrid}>
+              {timeOptions.map((t) => {
+                const active = selectedTime === t;
+                return (
+                  <Pressable
+                    key={t}
+                    style={[styles.timeChip, active && styles.timeChipActive]}
+                    onPress={() => setSelectedTime(t)}
+                  >
+                    <Text style={[styles.timeChipText, active && styles.timeChipTextActive]}>{t}</Text>
+                  </Pressable>
+                );
+              })}
             </View>
 
             <View style={styles.dateModalActions}>
-              <Pressable style={styles.dateModalCancel} onPress={() => { setShowDatePicker(false); setVisitDate(""); setVisitTime(""); }}>
-                <Text style={styles.dateModalCancelText}>Skip</Text>
+              <Pressable style={styles.dateModalCancel} onPress={() => setShowDatePicker(false)}>
+                <Text style={styles.dateModalCancelText}>Cancel</Text>
               </Pressable>
               <Pressable
-                style={[styles.dateModalSubmit, applyMutation.isPending && { opacity: 0.6 }]}
-                onPress={() => applyMutation.mutate()}
-                disabled={applyMutation.isPending}
+                style={[styles.dateModalSubmit, (!canSubmitVisit || applyMutation.isPending) && { opacity: 0.5 }]}
+                onPress={submitVisit}
+                disabled={!canSubmitVisit || applyMutation.isPending}
               >
                 {applyMutation.isPending ? (
                   <ActivityIndicator size="small" color={colors.background} />
                 ) : (
-                  <Text style={styles.dateModalSubmitText}>Submit</Text>
+                  <Text style={styles.dateModalSubmitText}>Confirm booking</Text>
                 )}
               </Pressable>
             </View>
@@ -497,9 +573,11 @@ export default function OfferDetailScreen() {
         <View style={styles.successModalOverlay}>
           <View style={styles.successModal}>
             <CheckCircle2 size={48} color={colors.green} />
-            <Text style={styles.successTitle}>Application Submitted!</Text>
+            <Text style={styles.successTitle}>Booking Confirmed!</Text>
             <Text style={styles.successText}>
-              The venue will review and confirm your visit.
+              {selectedDate && selectedTime
+                ? `See you on ${new Date(`${selectedDate}T${selectedTime}:00`).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })} at ${selectedTime}.`
+                : "Your visit is booked."}
             </Text>
             {qrCode && (
               <View style={styles.qrCodeBox}>
@@ -587,9 +665,20 @@ function createStyles(colors: ThemeColors) {
     dateModal: { backgroundColor: colors.card, borderRadius: 20, padding: 24, width: "100%", maxWidth: 360, alignItems: "center", borderWidth: 1, borderColor: colors.cardBorder, gap: 12 },
     dateModalTitle: { fontSize: 20, fontWeight: "700", color: colors.text },
     dateModalSubtitle: { fontSize: 14, color: colors.textSecondary, textAlign: "center" },
-    dateInputRow: { flexDirection: "row", gap: 10, width: "100%" },
-    dateInputLabel: { fontSize: 12, fontWeight: "600", color: colors.textSecondary, marginBottom: 4 },
-    dateInput: { backgroundColor: colors.inputBackground, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, fontWeight: "600", color: colors.text, borderWidth: 1, borderColor: colors.inputBorder, textAlign: "center" },
+    pickerLabel: { fontSize: 12, fontWeight: "700", color: colors.textSecondary, textTransform: "uppercase", letterSpacing: 0.5, alignSelf: "flex-start", marginTop: 8 },
+    pickerEmpty: { fontSize: 14, color: colors.textMuted, alignSelf: "flex-start" },
+    pickerRow: { gap: 8, paddingVertical: 2 },
+    dateChip: { width: 58, paddingVertical: 10, borderRadius: 14, backgroundColor: colors.inputBackground, borderWidth: 1, borderColor: colors.inputBorder, alignItems: "center", gap: 2 },
+    dateChipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+    dateChipWeekday: { fontSize: 11, fontWeight: "600", color: colors.textSecondary },
+    dateChipDay: { fontSize: 18, fontWeight: "800", color: colors.text },
+    dateChipMonth: { fontSize: 10, fontWeight: "600", color: colors.textMuted },
+    dateChipTextActive: { color: colors.background },
+    timeGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, alignSelf: "flex-start" },
+    timeChip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 12, backgroundColor: colors.inputBackground, borderWidth: 1, borderColor: colors.inputBorder },
+    timeChipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+    timeChipText: { fontSize: 14, fontWeight: "600", color: colors.textSecondary },
+    timeChipTextActive: { color: colors.background },
     dateModalActions: { flexDirection: "row", gap: 10, width: "100%", marginTop: 8 },
     dateModalCancel: { flex: 1, alignItems: "center", paddingVertical: 14, borderRadius: 14, borderWidth: 1, borderColor: colors.cardBorder },
     dateModalCancelText: { fontSize: 15, fontWeight: "600", color: colors.textSecondary },

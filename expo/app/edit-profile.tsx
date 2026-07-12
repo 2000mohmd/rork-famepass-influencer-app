@@ -17,12 +17,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/hooks/useTheme";
 import type { ThemeColors } from "@/constants/colors";
 import { useAuth } from "@/app/_layout";
-import { supabase } from "@/lib/supabase";
+import { apiRequestWithRefresh } from "@/lib/api";
 
 export default function EditProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { profile, session, refreshProfile } = useAuth();
+  const { profile, refreshProfile } = useAuth();
   const { colors } = useTheme();
 
   const [fullName, setFullName] = useState(profile?.full_name ?? "");
@@ -60,9 +60,9 @@ export default function EditProfileScreen() {
     }
     setLoading(true);
     try {
-      const { error: updateError } = await supabase
-        .from("profiles")
-        .update({
+      await apiRequestWithRefresh("/profile", {
+        method: "PUT",
+        body: {
           full_name: fullName.trim(),
           bio: bio.trim(),
           city: city.trim() || undefined,
@@ -70,13 +70,8 @@ export default function EditProfileScreen() {
           instagram_handle: instagram.trim(),
           tiktok_handle: tiktok.trim(),
           followers_count: Number(followers) || 0,
-        })
-        .eq("user_id", session?.user?.id);
-
-      if (updateError) {
-        setError(updateError.message);
-        return;
-      }
+        },
+      });
 
       refreshProfile?.();
       setSuccess(true);

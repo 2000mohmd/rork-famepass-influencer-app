@@ -248,20 +248,14 @@ export default function RootLayout() {
               <Stack.Screen
                 name="forgot-password"
                 options={{
-                  headerShown: true,
-                  headerTitle: "",
-                  headerTransparent: true,
-                  headerTintColor: colors.text,
+                  headerShown: false,
                   animation: "slide_from_right",
                 }}
               />
               <Stack.Screen
                 name="signup"
                 options={{
-                  headerShown: true,
-                  headerTitle: "",
-                  headerTransparent: true,
-                  headerTintColor: colors.text,
+                  headerShown: false,
                   animation: "slide_from_right",
                 }}
               />

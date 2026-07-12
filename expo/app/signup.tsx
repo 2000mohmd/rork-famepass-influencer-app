@@ -5,6 +5,7 @@ import {
   Camera,
   CheckCircle2,
   MapPin,
+  Sparkles,
 } from "lucide-react-native";
 import React, { useCallback, useMemo, useState } from "react";
 import {
@@ -28,36 +29,62 @@ import { useQuery } from "@tanstack/react-query";
 import { useTheme } from "@/hooks/useTheme";
 import type { ThemeColors } from "@/constants/colors";
 import { supabase } from "@/lib/supabase";
+import { apiRequestWithRefresh } from "@/lib/api";
 
-function FamePassWordmark({ colors }: { colors: ThemeColors }) {
+function FamePassWordmark({ colors, size = 22 }: { colors: ThemeColors; size?: number }) {
   return (
     <View style={{ flexDirection: "row", alignItems: "baseline" }}>
-      <Text style={{ fontFamily: "serif", fontWeight: "700", fontSize: 24, color: colors.text }}>Fame</Text>
-      <Text style={{ fontFamily: "serif", fontStyle: "italic", fontWeight: "700", fontSize: 24, color: colors.accentLight }}>Pass</Text>
+      <Text style={{ fontFamily: "serif", fontWeight: "700", fontSize: size, color: colors.text }}>Fame</Text>
+      <Text style={{ fontFamily: "serif", fontStyle: "italic", fontWeight: "700", fontSize: size, color: colors.accentLight }}>Pass</Text>
     </View>
   );
 }
-
-function ProgressBar({ step, total, colors }: { step: number; total: number; colors: ThemeColors }) {
-  const pct = (step / total) * 100;
-  return (
-    <View style={progressStyles.progressBar}>
-      <View style={[progressStyles.progressTrack, { backgroundColor: colors.cardBorder }]}>
-        <View style={[progressStyles.progressFill, { width: `${pct}%` as any, backgroundColor: colors.accent }]} />
-      </View>
-      <Text style={[progressStyles.progressText, { color: colors.textMuted }]}>{step} of {total}</Text>
-    </View>
-  );
-}
-
-const progressStyles = StyleSheet.create({
-  progressBar: { gap: 4 },
-  progressTrack: { height: 4, borderRadius: 2, overflow: "hidden" },
-  progressFill: { height: "100%", borderRadius: 2 },
-  progressText: { fontSize: 11, fontWeight: "600", textAlign: "right" },
-});
 
 const TOTAL_STEPS = 5;
+const STEP_NAMES = ["Account", "You", "Photo", "Socials", "Niches"];
+
+/** Named, segmented progress tracker — replaces the flat "3 of 5" bar. */
+function StepTracker({ step, colors }: { step: number; colors: ThemeColors }) {
+  return (
+    <View style={trackerStyles.wrap}>
+      <View style={trackerStyles.segments}>
+        {STEP_NAMES.map((_, i) => {
+          const done = i + 1 < step;
+          const active = i + 1 === step;
+          return (
+            <View
+              key={i}
+              style={[
+                trackerStyles.seg,
+                { backgroundColor: done || active ? colors.accent : colors.cardBorder },
+                active && { backgroundColor: colors.accent, opacity: 1 },
+              ]}
+            />
+          );
+        })}
+      </View>
+      <Text style={[trackerStyles.label, { color: colors.textMuted }]}>
+        Step {step} of {TOTAL_STEPS} · {STEP_NAMES[step - 1]}
+      </Text>
+    </View>
+  );
+}
+
+const trackerStyles = StyleSheet.create({
+  wrap: { gap: 6 },
+  segments: { flexDirection: "row", gap: 5 },
+  seg: { height: 4, borderRadius: 2, flex: 1 },
+  label: { fontSize: 11, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.6 },
+});
+
+/** Per-step eyebrow + serif headline that frames signup as claiming a pass. */
+const STEP_COPY: { eyebrow: string; title: string; subtitle: string }[] = [
+  { eyebrow: "Step 1 · Account", title: "Claim your creator pass", subtitle: "Start your FamePass journey" },
+  { eyebrow: "Step 2 · About you", title: "Tell venues who you are", subtitle: "This helps venues find you" },
+  { eyebrow: "Step 3 · Your photo", title: "Put a face to your pass", subtitle: "Help venues recognize you" },
+  { eyebrow: "Step 4 · Your reach", title: "Connect your socials", subtitle: "At least one platform. Followers auto-detected." },
+  { eyebrow: "Step 5 · Your niches", title: "What do you create?", subtitle: "Pick the categories that fit your content" },
+];
 
 interface CategoryItem {
   id: string;
@@ -65,6 +92,12 @@ interface CategoryItem {
   color: string;
   icon: string | null;
 }
+
+const SOCIAL_META: Record<"instagram" | "tiktok" | "youtube", { label: string; glyph: string; bg: string }> = {
+  instagram: { label: "Instagram", glyph: "◎", bg: "#DD2A7B" },
+  tiktok: { label: "TikTok", glyph: "♪", bg: "#111111" },
+  youtube: { label: "YouTube", glyph: "▶", bg: "#FF0000" },
+};
 
 export default function SignupScreen() {
   const router = useRouter();
@@ -99,6 +132,8 @@ export default function SignupScreen() {
 
   // Step 5
   const [selectedNiches, setSelectedNiches] = useState<string[]>([]);
+
+  const [focusedField, setFocusedField] = useState<string | null>(null);
 
   // Fetch categories (niches) from Supabase
   const { data: niches, isLoading: nichesLoading } = useQuery<CategoryItem[]>({
@@ -159,6 +194,25 @@ export default function SignupScreen() {
     }
   }, []);
 
+  /** Uploads the picked avatar to the "avatars" bucket and returns its storage path. */
+  const uploadAvatar = useCallback(async (userId: string): Promise<string | null> => {
+    if (!avatarUri) return null;
+    try {
+      const res = await fetch(avatarUri);
+      const arrayBuffer = await res.arrayBuffer();
+      const ext = (avatarUri.split(".").pop() || "jpg").split("?")[0].toLowerCase();
+      const contentType = ext === "png" ? "image/png" : "image/jpeg";
+      const path = `${userId}/avatar.${ext}`;
+      const { error: uploadError } = await supabase.storage
+        .from("avatars")
+        .upload(path, arrayBuffer, { contentType, upsert: true });
+      if (uploadError) return null;
+      return path;
+    } catch {
+      return null;
+    }
+  }, [avatarUri]);
+
   // Validation
   const isEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   const isPasswordStrong =
@@ -208,8 +262,36 @@ export default function SignupScreen() {
         },
       });
 
+      // Show an error and STAY on this screen. Only clear a session if one was
+      // actually created (a stray signed-in session would otherwise let the
+      // global auth guard navigate away). No session → don't touch auth, which
+      // avoids bouncing the user back to the welcome screen.
+      const failWith = async (message: string) => {
+        const { data: { session: s } } = await supabase.auth.getSession();
+        if (s) await supabase.auth.signOut();
+        setError(message);
+      };
+
+      // Network / non-2xx failure from the edge function itself.
       if (invokeError) {
-        setError(invokeError.message ?? "Signup failed. Please try again.");
+        await failWith(invokeError.message ?? "Signup failed. Please try again.");
+        return;
+      }
+
+      // The function can return an error in the body with a 200 status
+      // (e.g. duplicate email), which invokeError does NOT catch. Inspect the body.
+      if (data?.error) {
+        await failWith(
+          data.code === "email_exists" || data.should_sign_in
+            ? "This email is already registered. Go back and use a different email, or sign in."
+            : data.error,
+        );
+        return;
+      }
+
+      // Signup succeeded only if the function returned the created user.
+      if (!data?.user) {
+        await failWith("Signup did not complete. Please try again.");
         return;
       }
 
@@ -218,18 +300,39 @@ export default function SignupScreen() {
         password,
       });
       if (signInError) {
-        setError("Account created but login failed. Please sign in manually.");
-        router.replace("/login");
+        // Most common cause: the project has email confirmation enabled.
+        await failWith(
+          /confirm/i.test(signInError.message)
+            ? "Account created. Please confirm your email, then sign in."
+            : "Account created but automatic sign-in failed. Please sign in manually.",
+        );
         return;
       }
 
+      // Now that we have a session, upload the avatar (if picked) and save it.
+      const userId = (data.user as { id?: string })?.id;
+      if (avatarUri && userId) {
+        const path = await uploadAvatar(userId);
+        if (path) {
+          try {
+            await apiRequestWithRefresh("/profile", {
+              method: "PUT",
+              body: { avatar_url: path },
+            });
+          } catch {
+            // Non-fatal — the account is created; avatar can be set later in Edit Profile.
+          }
+        }
+      }
+
+      // Fully successful — navigation happens here only.
       router.replace("/(tabs)/home");
     } catch (e: any) {
       setError(e?.message ?? "An unexpected error occurred.");
     } finally {
       setLoading(false);
     }
-  }, [email, password, fullName, instagram, tiktok, youtube, bio, city, country, latitude, longitude, selectedNiches, router]);
+  }, [email, password, fullName, instagram, tiktok, youtube, bio, city, country, latitude, longitude, selectedNiches, avatarUri, uploadAvatar, router]);
 
   const handleContinue = () => {
     if (step < TOTAL_STEPS) {
@@ -240,6 +343,12 @@ export default function SignupScreen() {
   };
 
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const copy = STEP_COPY[step - 1];
+
+  const inputStyle = (field: string) => [
+    styles.input,
+    focusedField === field && styles.inputFocused,
+  ];
 
   return (
     <KeyboardAvoidingView
@@ -250,7 +359,14 @@ export default function SignupScreen() {
         <View style={styles.headerTop}>
           <Pressable
             style={styles.backButton}
-            onPress={() => (step === 1 ? router.back() : setStep(step - 1))}
+            onPress={() => {
+              if (step === 1) {
+                router.back();
+              } else {
+                setError(null);
+                setStep(step - 1);
+              }
+            }}
           >
             <ArrowLeft size={20} color={colors.textSecondary} />
             <Text style={styles.backText}>{step === 1 ? "Back" : "Previous"}</Text>
@@ -258,7 +374,7 @@ export default function SignupScreen() {
           <FamePassWordmark colors={colors} />
           <View style={{ width: 60 }} />
         </View>
-        <ProgressBar step={step} total={TOTAL_STEPS} colors={colors} />
+        <StepTracker step={step} colors={colors} />
       </View>
 
       <ScrollView
@@ -267,6 +383,19 @@ export default function SignupScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
+        {/* Reward reminder — shows what the creator is unlocking */}
+        <View style={styles.rewardBanner}>
+          <Sparkles size={14} color={colors.accent} />
+          <Text style={styles.rewardText}>Unlock free tables, event passes & paid collabs</Text>
+        </View>
+
+        {/* Per-step framing */}
+        <View style={styles.stepIntro}>
+          <Text style={styles.eyebrow}>{copy.eyebrow}</Text>
+          <Text style={styles.stepTitle}>{copy.title}</Text>
+          <Text style={styles.stepSubtitle}>{copy.subtitle}</Text>
+        </View>
+
         {error && (
           <View style={styles.errorBox}>
             <Text style={styles.errorText}>{error}</Text>
@@ -276,13 +405,10 @@ export default function SignupScreen() {
         {/* Step 1 — Account */}
         {step === 1 && (
           <View style={styles.stepContent}>
-            <Text style={styles.stepTitle}>Create your account</Text>
-            <Text style={styles.stepSubtitle}>Start your FamePass journey</Text>
-
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Email</Text>
               <TextInput
-                style={styles.input}
+                style={inputStyle("email")}
                 placeholder="you@example.com"
                 placeholderTextColor={colors.textMuted}
                 keyboardType="email-address"
@@ -290,23 +416,27 @@ export default function SignupScreen() {
                 autoCorrect={false}
                 value={email}
                 onChangeText={setEmail}
+                onFocus={() => setFocusedField("email")}
+                onBlur={() => setFocusedField(null)}
               />
             </View>
 
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Password</Text>
               <TextInput
-                style={styles.input}
+                style={inputStyle("password")}
                 placeholder="Min. 8 characters"
                 placeholderTextColor={colors.textMuted}
                 secureTextEntry
                 value={password}
                 onChangeText={setPassword}
+                onFocus={() => setFocusedField("password")}
+                onBlur={() => setFocusedField(null)}
               />
               <View style={styles.passwordHints}>
                 <HintRow done={password.length >= 8} label="8+ characters" colors={colors} />
-                <HintRow done={/[A-Z]/.test(password)} label="Uppercase letter" colors={colors} />
-                <HintRow done={/[a-z]/.test(password)} label="Lowercase letter" colors={colors} />
+                <HintRow done={/[A-Z]/.test(password)} label="Uppercase" colors={colors} />
+                <HintRow done={/[a-z]/.test(password)} label="Lowercase" colors={colors} />
                 <HintRow done={/[0-9]/.test(password)} label="Number" colors={colors} />
               </View>
             </View>
@@ -316,43 +446,51 @@ export default function SignupScreen() {
         {/* Step 2 — Profile */}
         {step === 2 && (
           <View style={styles.stepContent}>
-            <Text style={styles.stepTitle}>Tell us about yourself</Text>
-            <Text style={styles.stepSubtitle}>This helps venues find you</Text>
-
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Full name</Text>
               <TextInput
-                style={styles.input}
+                style={inputStyle("fullName")}
                 placeholder="Your full name"
                 placeholderTextColor={colors.textMuted}
                 value={fullName}
                 onChangeText={setFullName}
+                onFocus={() => setFocusedField("fullName")}
+                onBlur={() => setFocusedField(null)}
               />
             </View>
 
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Username (optional)</Text>
-              <View style={styles.usernameWrapper}>
+              <View style={[styles.usernameWrapper, focusedField === "username" && styles.inputFocused]}>
                 <Text style={[styles.atPrefix, { color: colors.textMuted }]}>@</Text>
                 <TextInput
-                  style={[styles.input, { flex: 1, borderWidth: 0 }]}
+                  style={[styles.input, { flex: 1, borderWidth: 0, backgroundColor: "transparent" }]}
                   placeholder="username"
                   placeholderTextColor={colors.textMuted}
                   autoCapitalize="none"
                   value={username}
                   onChangeText={setUsername}
+                  onFocus={() => setFocusedField("username")}
+                  onBlur={() => setFocusedField(null)}
                 />
               </View>
             </View>
 
-            {/* Location section */}
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Your Location</Text>
-              <Pressable style={styles.detectButton} onPress={detectLocation}>
+              <Text style={styles.label}>Your location</Text>
+              <Pressable
+                style={[styles.detectButton, (city || country) && styles.detectButtonFilled]}
+                onPress={detectLocation}
+              >
                 <MapPin size={16} color={colors.accent} />
                 <Text style={styles.detectButtonText}>
-                  {locationLoading ? "Detecting..." : "Use my current location"}
+                  {locationLoading
+                    ? "Detecting…"
+                    : city || country
+                      ? `${city}${city && country ? ", " : ""}${country}`
+                      : "Use my current location"}
                 </Text>
+                {(city || country) && !locationLoading && <CheckCircle2 size={15} color={colors.green} />}
               </Pressable>
             </View>
 
@@ -360,36 +498,46 @@ export default function SignupScreen() {
               <View style={[styles.inputGroup, { flex: 1 }]}>
                 <Text style={styles.label}>City</Text>
                 <TextInput
-                  style={styles.input}
-                  placeholder="e.g. Dubai, Beirut"
+                  style={inputStyle("city")}
+                  placeholder="Dubai"
                   placeholderTextColor={colors.textMuted}
                   value={city}
                   onChangeText={setCity}
+                  onFocus={() => setFocusedField("city")}
+                  onBlur={() => setFocusedField(null)}
                 />
               </View>
               <View style={[styles.inputGroup, { flex: 1 }]}>
                 <Text style={styles.label}>Country</Text>
                 <TextInput
-                  style={styles.input}
-                  placeholder="e.g. UAE, Lebanon"
+                  style={inputStyle("country")}
+                  placeholder="UAE"
                   placeholderTextColor={colors.textMuted}
                   value={country}
                   onChangeText={setCountry}
+                  onFocus={() => setFocusedField("country")}
+                  onBlur={() => setFocusedField(null)}
                 />
               </View>
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Bio</Text>
+              <View style={styles.labelRow}>
+                <Text style={styles.label}>Bio</Text>
+                <Text style={styles.counter}>{bio.length}/160</Text>
+              </View>
               <TextInput
-                style={[styles.input, styles.textArea]}
-                placeholder="Tell venues about your content style..."
+                style={[inputStyle("bio"), styles.textArea]}
+                placeholder="Tell venues about your content style…"
                 placeholderTextColor={colors.textMuted}
                 multiline
                 numberOfLines={3}
+                maxLength={160}
                 textAlignVertical="top"
                 value={bio}
                 onChangeText={setBio}
+                onFocus={() => setFocusedField("bio")}
+                onBlur={() => setFocusedField(null)}
               />
             </View>
           </View>
@@ -398,21 +546,23 @@ export default function SignupScreen() {
         {/* Step 3 — Photo */}
         {step === 3 && (
           <View style={styles.stepContent}>
-            <Text style={styles.stepTitle}>Add a profile photo</Text>
-            <Text style={styles.stepSubtitle}>Help venues recognize you</Text>
-
             <Pressable style={styles.avatarPicker} onPress={pickAvatar}>
-              {avatarUri ? (
-                <Image source={{ uri: avatarUri }} style={styles.avatarPreview} />
-              ) : (
-                <View style={styles.avatarPlaceholder}>
-                  <Camera size={36} color={colors.textMuted} />
-                </View>
-              )}
-              <View style={styles.avatarPickerBadge}>
-                <Camera size={14} color="#FFF" />
+              <View style={styles.avatarRing}>
+                {avatarUri ? (
+                  <Image source={{ uri: avatarUri }} style={styles.avatarPreview} />
+                ) : (
+                  <View style={styles.avatarPlaceholder}>
+                    <Camera size={34} color={colors.accent} />
+                  </View>
+                )}
+              </View>
+              <View style={styles.avatarBadge}>
+                <Camera size={14} color={colors.background} />
               </View>
             </Pressable>
+            <Text style={styles.avatarHint}>
+              {avatarUri ? "Looking good — tap to change" : "Tap to add · uploads to your profile"}
+            </Text>
 
             <Pressable style={styles.skipButton} onPress={handleContinue}>
               <Text style={styles.skipText}>Skip for now</Text>
@@ -424,48 +574,43 @@ export default function SignupScreen() {
         {/* Step 4 — Social Handles */}
         {step === 4 && (
           <View style={styles.stepContent}>
-            <Text style={styles.stepTitle}>Connect your socials</Text>
-            <Text style={styles.stepSubtitle}>At least one platform required. Followers will be auto-detected.</Text>
+            <SocialRow
+              platform="instagram"
+              value={instagram}
+              onChangeText={setInstagram}
+              focused={focusedField === "instagram"}
+              onFocus={() => setFocusedField("instagram")}
+              onBlur={() => setFocusedField(null)}
+              colors={colors}
+              styles={styles}
+            />
+            <SocialRow
+              platform="tiktok"
+              value={tiktok}
+              onChangeText={setTiktok}
+              focused={focusedField === "tiktok"}
+              onFocus={() => setFocusedField("tiktok")}
+              onBlur={() => setFocusedField(null)}
+              colors={colors}
+              styles={styles}
+            />
+            <SocialRow
+              platform="youtube"
+              value={youtube}
+              optional
+              onChangeText={setYoutube}
+              focused={focusedField === "youtube"}
+              onFocus={() => setFocusedField("youtube")}
+              onBlur={() => setFocusedField(null)}
+              colors={colors}
+              styles={styles}
+            />
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Instagram handle</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="@yourhandle"
-                placeholderTextColor={colors.textMuted}
-                autoCapitalize="none"
-                value={instagram}
-                onChangeText={setInstagram}
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>TikTok handle</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="@yourhandle"
-                placeholderTextColor={colors.textMuted}
-                autoCapitalize="none"
-                value={tiktok}
-                onChangeText={setTiktok}
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>YouTube (optional)</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="@yourchannel"
-                placeholderTextColor={colors.textMuted}
-                autoCapitalize="none"
-                value={youtube}
-                onChangeText={setYoutube}
-              />
-            </View>
-
-            <View style={styles.followerNote}>
+            <View style={[styles.followerNote, hasAtLeastOneSocial && styles.followerNoteOk]}>
               <Text style={styles.followerNoteText}>
-                Your follower count will be automatically detected from your connected social accounts.
+                {hasAtLeastOneSocial
+                  ? "Great — your follower count will be auto-detected from your connected accounts."
+                  : "Add at least Instagram or TikTok to continue."}
               </Text>
             </View>
           </View>
@@ -474,9 +619,6 @@ export default function SignupScreen() {
         {/* Step 5 — Niches */}
         {step === 5 && (
           <View style={styles.stepContent}>
-            <Text style={styles.stepTitle}>Choose your niches</Text>
-            <Text style={styles.stepSubtitle}>Pick at least one category that fits your content</Text>
-
             {nichesLoading ? (
               <ActivityIndicator color={colors.accent} style={{ marginTop: 24 }} />
             ) : (
@@ -486,27 +628,20 @@ export default function SignupScreen() {
                   return (
                     <Pressable
                       key={niche.id}
-                      style={[
-                        styles.nichePill,
-                        isSelected && styles.nichePillActive,
-                      ]}
+                      style={[styles.nichePill, isSelected && styles.nichePillActive]}
                       onPress={() => toggleNiche(niche.id)}
                     >
-                      <Text
-                        style={[
-                          styles.nichePillText,
-                          isSelected && styles.nichePillTextActive,
-                        ]}
-                      >
+                      <Text style={[styles.nichePillText, isSelected && styles.nichePillTextActive]}>
                         {niche.name}
                       </Text>
-                      {isSelected && (
-                        <CheckCircle2 size={14} color={colors.background} />
-                      )}
+                      {isSelected && <CheckCircle2 size={14} color={colors.background} />}
                     </Pressable>
                   );
                 })}
               </View>
+            )}
+            {selectedNiches.length > 0 && (
+              <Text style={styles.nicheCount}>{selectedNiches.length} selected</Text>
             )}
           </View>
         )}
@@ -515,19 +650,19 @@ export default function SignupScreen() {
       {/* Bottom */}
       <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 8 }]}>
         <Pressable
-          style={[
-            styles.ctaButton,
-            (!canContinue || loading) && styles.ctaDisabled,
-          ]}
+          style={[styles.ctaButton, (!canContinue || loading) && styles.ctaDisabled]}
           onPress={handleContinue}
           disabled={!canContinue || loading}
         >
           {loading ? (
             <ActivityIndicator size="small" color={colors.background} />
           ) : (
-            <Text style={styles.ctaText}>
-              {step === TOTAL_STEPS ? "Create Account" : "Continue"}
-            </Text>
+            <View style={styles.ctaInner}>
+              <Text style={styles.ctaText}>
+                {step === TOTAL_STEPS ? "Create my pass" : "Continue"}
+              </Text>
+              <ArrowRight size={18} color={colors.background} />
+            </View>
           )}
         </Pressable>
       </View>
@@ -535,14 +670,51 @@ export default function SignupScreen() {
   );
 }
 
+function SocialRow({
+  platform, value, onChangeText, focused, onFocus, onBlur, colors, styles, optional,
+}: {
+  platform: "instagram" | "tiktok" | "youtube";
+  value: string;
+  onChangeText: (t: string) => void;
+  focused: boolean;
+  onFocus: () => void;
+  onBlur: () => void;
+  colors: ThemeColors;
+  styles: ReturnType<typeof createStyles>;
+  optional?: boolean;
+}) {
+  const meta = SOCIAL_META[platform];
+  return (
+    <View style={[styles.socialRow, focused && styles.inputFocused]}>
+      <View style={[styles.socialIcon, { backgroundColor: meta.bg }]}>
+        <Text style={styles.socialGlyph}>{meta.glyph}</Text>
+      </View>
+      <View style={styles.socialField}>
+        <Text style={styles.socialLabel}>
+          {meta.label}{optional ? " · optional" : ""}
+        </Text>
+        <TextInput
+          style={styles.socialInput}
+          placeholder="@yourhandle"
+          placeholderTextColor={colors.textMuted}
+          autoCapitalize="none"
+          autoCorrect={false}
+          value={value}
+          onChangeText={onChangeText}
+          onFocus={onFocus}
+          onBlur={onBlur}
+        />
+      </View>
+      {value.trim().length > 0 && <CheckCircle2 size={16} color={colors.green} />}
+    </View>
+  );
+}
+
 function HintRow({ done, label, colors }: { done: boolean; label: string; colors: ThemeColors }) {
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-      <CheckCircle2
-        size={14}
-        color={done ? colors.green : colors.textMuted}
-      />
-      <Text style={{ fontSize: 12, fontWeight: "500", color: done ? colors.green : colors.textMuted }}>
+      <CheckCircle2 size={13} color={done ? colors.green : colors.textMuted} />
+      <Text style={{ fontSize: 12, fontWeight: "600", color: done ? colors.green : colors.textMuted }}>
         {label}
       </Text>
     </View>
@@ -552,42 +724,71 @@ function HintRow({ done, label, colors }: { done: boolean; label: string; colors
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
-    header: { paddingHorizontal: 20, paddingBottom: 8, gap: 12 },
+    header: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 12, gap: 14 },
     headerTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-    backButton: { flexDirection: "row", alignItems: "center", gap: 4 },
+    backButton: { flexDirection: "row", alignItems: "center", gap: 4, width: 80 },
     backText: { fontSize: 14, fontWeight: "600", color: colors.textSecondary },
     scrollView: { flex: 1 },
-    scrollContent: { padding: 20, paddingTop: 12, paddingBottom: 100 },
-    errorBox: { backgroundColor: colors.red + "18", borderRadius: 12, padding: 14, borderWidth: 1, borderColor: colors.red + "30", marginBottom: 12 },
+    scrollContent: { padding: 20, paddingTop: 8, paddingBottom: 100 },
+
+    rewardBanner: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingVertical: 9, paddingHorizontal: 14, borderRadius: 12, backgroundColor: colors.accent + "12", borderWidth: 1, borderColor: colors.accent + "22", marginBottom: 20 },
+    rewardText: { fontSize: 12.5, fontWeight: "600", color: colors.accentLight },
+
+    stepIntro: { marginBottom: 22, gap: 4 },
+    eyebrow: { fontSize: 11, fontWeight: "700", letterSpacing: 1, textTransform: "uppercase", color: colors.accent },
+    stepTitle: { fontFamily: "serif", fontSize: 27, fontWeight: "700", color: colors.text, lineHeight: 32 },
+    stepSubtitle: { fontSize: 14.5, color: colors.textSecondary },
+
+    errorBox: { backgroundColor: colors.red + "18", borderRadius: 12, padding: 14, borderWidth: 1, borderColor: colors.red + "30", marginBottom: 16 },
     errorText: { fontSize: 14, color: colors.red, fontWeight: "500" },
+
     stepContent: { gap: 16 },
-    stepTitle: { fontSize: 24, fontWeight: "700", color: colors.text },
-    stepSubtitle: { fontSize: 15, color: colors.textSecondary, marginTop: -8 },
     inputGroup: { gap: 6 },
+    labelRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
     label: { fontSize: 13, fontWeight: "600", color: colors.textSecondary, marginLeft: 4 },
-    input: { backgroundColor: colors.inputBackground, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, fontSize: 16, color: colors.text, borderWidth: 1, borderColor: colors.inputBorder },
+    counter: { fontSize: 12, color: colors.textMuted, fontWeight: "500" },
+    input: { backgroundColor: colors.inputBackground, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, fontSize: 16, color: colors.text, borderWidth: 1.5, borderColor: colors.inputBorder },
+    inputFocused: { borderColor: colors.accent, backgroundColor: colors.card },
     textArea: { minHeight: 90, paddingTop: 14 },
-    usernameWrapper: { flexDirection: "row", alignItems: "center", backgroundColor: colors.inputBackground, borderRadius: 14, borderWidth: 1, borderColor: colors.inputBorder },
+    usernameWrapper: { flexDirection: "row", alignItems: "center", backgroundColor: colors.inputBackground, borderRadius: 14, borderWidth: 1.5, borderColor: colors.inputBorder },
     atPrefix: { fontSize: 16, paddingLeft: 16, fontWeight: "600" },
-    detectButton: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1, borderColor: colors.accent + "40", alignSelf: "flex-start" },
-    detectButtonText: { fontSize: 14, fontWeight: "600", color: colors.accent },
     row: { flexDirection: "row", gap: 10 },
-    passwordHints: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 4 },
-    avatarPicker: { alignSelf: "center", marginTop: 8 },
-    avatarPreview: { width: 120, height: 120, borderRadius: 60, borderWidth: 3, borderColor: colors.accent },
-    avatarPlaceholder: { width: 120, height: 120, borderRadius: 60, backgroundColor: colors.card, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: colors.cardBorder, borderStyle: "dashed" },
-    avatarPickerBadge: { position: "absolute", bottom: 2, right: 2, width: 30, height: 30, borderRadius: 15, backgroundColor: colors.accent, alignItems: "center", justifyContent: "center" },
-    skipButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 12 },
+    passwordHints: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 6, marginLeft: 4 },
+
+    detectButton: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 12, paddingHorizontal: 16, borderRadius: 14, borderWidth: 1.5, borderColor: colors.accent + "40", backgroundColor: colors.accent + "0A" },
+    detectButtonFilled: { borderColor: colors.green + "50", backgroundColor: colors.green + "0F" },
+    detectButtonText: { fontSize: 14.5, fontWeight: "600", color: colors.accent, flex: 1 },
+
+    avatarPicker: { alignSelf: "center", marginTop: 10 },
+    avatarRing: { width: 132, height: 132, borderRadius: 66, padding: 4, borderWidth: 2, borderColor: colors.accent, alignItems: "center", justifyContent: "center" },
+    avatarPreview: { width: "100%", height: "100%", borderRadius: 62 },
+    avatarPlaceholder: { width: "100%", height: "100%", borderRadius: 62, backgroundColor: colors.accent + "12", alignItems: "center", justifyContent: "center" },
+    avatarBadge: { position: "absolute", bottom: 4, right: 4, width: 34, height: 34, borderRadius: 17, backgroundColor: colors.accent, alignItems: "center", justifyContent: "center", borderWidth: 3, borderColor: colors.background },
+    avatarHint: { fontSize: 13, color: colors.textSecondary, textAlign: "center", marginTop: 14, fontWeight: "500" },
+    skipButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 14, marginTop: 4 },
     skipText: { fontSize: 15, fontWeight: "600", color: colors.accentLight },
-    nicheGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-    followerNote: { backgroundColor: colors.accent + "10", borderRadius: 12, padding: 12, borderWidth: 1, borderColor: colors.accent + "20" },
+
+    socialRow: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: colors.inputBackground, borderRadius: 14, borderWidth: 1.5, borderColor: colors.inputBorder, paddingHorizontal: 12, paddingVertical: 10 },
+    socialIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+    socialGlyph: { fontSize: 18, color: "#FFFFFF", fontWeight: "700" },
+    socialField: { flex: 1 },
+    socialLabel: { fontSize: 11, fontWeight: "600", color: colors.textMuted, textTransform: "uppercase", letterSpacing: 0.4 },
+    socialInput: { fontSize: 16, color: colors.text, paddingVertical: Platform.OS === "ios" ? 2 : 0 },
+
+    followerNote: { backgroundColor: colors.card, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: colors.cardBorder, marginTop: 4 },
+    followerNoteOk: { backgroundColor: colors.accent + "0D", borderColor: colors.accent + "22" },
     followerNoteText: { fontSize: 13, color: colors.textSecondary, fontWeight: "500", textAlign: "center" },
-    nichePill: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardBorder, gap: 6 },
+
+    nicheGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+    nichePill: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 11, borderRadius: 20, backgroundColor: colors.card, borderWidth: 1.5, borderColor: colors.cardBorder, gap: 6 },
     nichePillActive: { backgroundColor: colors.accent, borderColor: colors.accent },
     nichePillText: { fontSize: 14, fontWeight: "600", color: colors.textSecondary },
     nichePillTextActive: { color: colors.background },
+    nicheCount: { fontSize: 13, fontWeight: "600", color: colors.accent, marginTop: 4 },
+
     bottomBar: { paddingHorizontal: 20, paddingTop: 12, backgroundColor: colors.background, borderTopWidth: 1, borderTopColor: colors.cardBorder },
     ctaButton: { backgroundColor: colors.accent, paddingVertical: 16, borderRadius: 16, alignItems: "center" },
+    ctaInner: { flexDirection: "row", alignItems: "center", gap: 8 },
     ctaDisabled: { opacity: 0.4 },
     ctaText: { fontSize: 17, fontWeight: "700", color: colors.background },
   });

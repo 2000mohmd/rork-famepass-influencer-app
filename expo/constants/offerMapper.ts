@@ -79,6 +79,7 @@ export interface Offer {
   isFree: boolean;
   slotsTotal: number;
   slotsRemaining: number;
+  startDate: string;
   expiryDate: string;
   bookingWindow: string;
   location: OfferLocation;
@@ -278,7 +279,8 @@ export function mapOfferFromAPI(item: any): Offer {
       0,
       (item.max_redemptions ?? 0) - (item.current_redemptions ?? 0),
     ),
-    expiryDate: item.end_date ?? "",
+    startDate: item.start_date ?? item.starts_at ?? "",
+    expiryDate: item.end_date ?? item.ends_at ?? "",
     bookingWindow: "",
     location: {
       city: item.venues?.city ?? "",

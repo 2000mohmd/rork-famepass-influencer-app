@@ -20,13 +20,14 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { useTheme } from "@/hooks/useTheme";
 import { useThemeStore } from "@/store/themeStore";
 import type { ThemeColors } from "@/constants/colors";
 import { useAuth } from "@/app/_layout";
 import { supabase } from "@/lib/supabase";
+import { apiRequestWithRefresh } from "@/lib/api";
 
 interface InfluencerSettings {
   notification_invitations: boolean;
@@ -41,6 +42,7 @@ export default function SettingsScreen() {
   const { signOut, profile, session } = useAuth();
   const { colors } = useTheme();
   const { isDark, toggleTheme } = useThemeStore();
+  const queryClient = useQueryClient();
 
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -51,12 +53,8 @@ export default function SettingsScreen() {
     queryKey: ["influencer-settings"],
     queryFn: async () => {
       if (!session?.user?.id) return null;
-      const { data } = await supabase
-        .from("influencer_settings")
-        .select("*")
-        .eq("influencer_id", session.user.id)
-        .single();
-      return (data as InfluencerSettings) ?? null;
+      const data = await apiRequestWithRefresh("/settings") as { settings?: InfluencerSettings };
+      return data.settings ?? null;
     },
     enabled: !!session?.user?.id,
   });
@@ -64,10 +62,13 @@ export default function SettingsScreen() {
   const updateNotifMutation = useMutation({
     mutationFn: async ({ key, value }: { key: keyof InfluencerSettings; value: boolean }) => {
       if (!session?.user?.id) return;
-      await supabase.from("influencer_settings").upsert({
-        influencer_id: session.user.id,
-        [key]: value,
+      await apiRequestWithRefresh("/settings", {
+        method: "PUT",
+        body: { [key]: value },
       });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["influencer-settings"] });
     },
   });
 

@@ -21,7 +21,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { useCurrency } from "@/hooks/useCurrency";
 import type { ThemeColors } from "@/constants/colors";
 import { useAuth } from "@/app/_layout";
-import { supabase } from "@/lib/supabase";
+import { apiRequestWithRefresh } from "@/lib/api";
 
 interface Earning {
   id: string;
@@ -30,6 +30,12 @@ interface Earning {
   source: string;
   status: string;
   created_at: string;
+}
+
+interface WalletResponse {
+  balance: number;
+  transactions: any[];
+  withdrawal_requests: any[];
 }
 
 export default function EarningsScreen() {
@@ -43,60 +49,47 @@ export default function EarningsScreen() {
   const [withdrawError, setWithdrawError] = useState<string | null>(null);
   const inputRef = useRef<TextInput>(null);
 
-  const { data: balance, isLoading: balanceLoading } = useQuery({
-    queryKey: ["wallet-balance"],
-    queryFn: async () => {
-      if (!session?.user?.id) return 0;
-      const { data, error } = await supabase.rpc("get_wallet_balance", {
-        _user_id: session.user.id,
-      });
-      if (error) return 0;
-      return (data as number) ?? 0;
-    },
-    enabled: !!session?.user?.id,
-  });
-
-  const { data: pendingWithdrawal } = useQuery({
-    queryKey: ["pending-withdrawal"],
+  // Single /wallet call returns balance, transactions (earnings) and
+  // withdrawal requests together — replacing three separate direct queries.
+  const { data: wallet, isLoading: walletLoading } = useQuery({
+    queryKey: ["wallet"],
     queryFn: async () => {
       if (!session?.user?.id) return null;
-      const { data } = await supabase
-        .from("withdrawal_requests")
-        .select("*")
-        .eq("influencer_id", session.user.id)
-        .eq("status", "pending")
-        .single();
-      return data ?? null;
+      return await apiRequestWithRefresh("/wallet") as WalletResponse;
     },
     enabled: !!session?.user?.id,
   });
 
-  const { data: earnings, isLoading: earningsLoading } = useQuery({
-    queryKey: ["earnings"],
-    queryFn: async () => {
-      if (!session?.user?.id) return [];
-      const { data } = await supabase
-        .from("earnings")
-        .select("*")
-        .eq("influencer_id", session.user.id)
-        .order("created_at", { ascending: false });
-      return (data ?? []) as Earning[];
-    },
-    enabled: !!session?.user?.id,
-  });
+  const balance = wallet?.balance ?? 0;
+  const balanceLoading = walletLoading;
+  const earningsLoading = walletLoading;
+
+  const earnings = useMemo<Earning[]>(() => {
+    return (wallet?.transactions ?? []).map((t: any) => ({
+      id: t.id,
+      influencer_id: t.influencer_id,
+      amount: Number(t.net_amount ?? t.amount ?? 0),
+      source: t.source ?? t.description ?? "Offer Payment",
+      status: t.status,
+      created_at: t.created_at,
+    }));
+  }, [wallet]);
+
+  const pendingWithdrawal = useMemo(() => {
+    return (wallet?.withdrawal_requests ?? []).find(
+      (w: any) => w.status === "pending" || w.status === "processing",
+    ) ?? null;
+  }, [wallet]);
 
   const withdrawMutation = useMutation({
     mutationFn: async (amount: number) => {
-      await supabase.from("withdrawal_requests").insert({
-        influencer_id: session?.user?.id,
-        amount,
-        payment_method: "bank_transfer",
-        status: "pending",
+      await apiRequestWithRefresh("/wallet/withdraw", {
+        method: "POST",
+        body: { amount, payment_method: "bank_transfer" },
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["wallet-balance"] });
-      queryClient.invalidateQueries({ queryKey: ["pending-withdrawal"] });
+      queryClient.invalidateQueries({ queryKey: ["wallet"] });
       setShowWithdraw(false);
       setWithdrawAmount("");
       setWithdrawError(null);

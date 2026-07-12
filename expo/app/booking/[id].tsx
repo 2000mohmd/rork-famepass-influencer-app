@@ -79,11 +79,10 @@ export default function BookingDetailScreen() {
   const checkInMutation = useMutation({
     mutationFn: async (code: string) => {
       if (!id) throw new Error("No booking");
-      const { data: b } = await supabase.from("bookings").select("qr_code").eq("id", id).single();
-      if (b?.qr_code && b.qr_code !== code) {
-        throw new Error("Invalid code. Please check the code from the venue.");
-      }
-      await supabase.from("bookings").update({ status: "checked_in" }).eq("id", id);
+      await apiRequestWithRefresh(`/bookings/${id}/checkin`, {
+        method: "POST",
+        body: { code },
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["booking", id] });

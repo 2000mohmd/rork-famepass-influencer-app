@@ -41,8 +41,8 @@ function PendingBadge() {
   const { data: count } = useQuery({
     queryKey: ["pending-invitations-count"],
     queryFn: async () => {
-      const data = await apiRequestWithRefresh("/invitations?status=pending&count=true") as { count?: number };
-      return data.count ?? 0;
+      const data = await apiRequestWithRefresh("/invitations?status=pending") as { invitations?: unknown[] };
+      return data.invitations?.length ?? 0;
     },
     refetchInterval: 30000,
   });

@@ -20,7 +20,7 @@ import type { ThemeColors } from "@/constants/colors";
 import {
   PLATFORM_NAMES,
   type Platform,
-} from "@/constants/mockData";
+} from "@/constants/offerMapper";
 
 const PLATFORM_DETAILS: Record<
   Platform,
