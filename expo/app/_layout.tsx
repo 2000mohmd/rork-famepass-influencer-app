@@ -73,14 +73,24 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       }
     })();
 
-    supabase.auth.getSession().then(({ data: { session: s } }) => {
-      setSession(s);
-      if (s) {
-        checkRole(s.user.id);
-      } else {
+    supabase.auth
+      .getSession()
+      .then(({ data: { session: s } }) => {
+        setSession(s);
+        if (s) {
+          checkRole(s.user.id);
+        } else {
+          setIsLoading(false);
+        }
+      })
+      .catch(() => {
+        // Session fetch can fail with "Failed to fetch" (expired refresh token,
+        // network/CORS issue). Don't leave the user stuck on a spinner.
+        setSession(null);
+        setProfile(null);
+        setIsInfluencer(false);
         setIsLoading(false);
-      }
-    });
+      });
 
     const { data: authListener } = supabase.auth.onAuthStateChange(
       (_event, s) => {
@@ -95,7 +105,19 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       },
     );
 
+    // If the Supabase client emits an error (e.g. refresh token invalid),
+    // make sure we don't leave the user on a spinner forever.
+    // The onAuthStateChange already handles SIGNED_OUT, but some edge cases
+    // (like "Failed to fetch" during refresh) don't trigger it reliably.
+
+    // Safety net: if getSession hangs or something blocks isLoading,
+    // force it off after 8 seconds so the user isn't stuck on a spinner.
+    const timeout = setTimeout(() => {
+      setIsLoading(false);
+    }, 8000);
+
     return () => {
+      clearTimeout(timeout);
       authListener.subscription.unsubscribe();
     };
   }, []);

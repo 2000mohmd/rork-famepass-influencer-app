@@ -32,18 +32,42 @@ export async function apiRequestWithRefresh(
   path: string,
   options: { method?: string; body?: unknown } = {},
 ): Promise<unknown> {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  let session: any = null;
+  try {
+    const result = await supabase.auth.getSession();
+    session = result.data?.session ?? null;
+  } catch {
+    // "Failed to fetch" can happen if the refresh token is expired or
+    // there's a network issue. Sign out so the auth guard sends the user
+    // to the login screen instead of silently failing.
+    try {
+      await supabase.auth.signOut();
+    } catch {}
+    throw new Error("Session expired. Please sign in again.");
+  }
+
   if (!session) throw new Error("Not authenticated");
 
   const expiresAt = session.expires_at ?? 0;
   if (Date.now() / 1000 > expiresAt - 60) {
-    const { data: refreshed } = await supabase.auth.refreshSession();
-    return apiRequest(path, {
-      ...options,
-      accessToken: refreshed.session?.access_token,
-    });
+    try {
+      const { data: refreshed } = await supabase.auth.refreshSession();
+      if (!refreshed.session) {
+        await supabase.auth.signOut().catch(() => {});
+        throw new Error("Session expired. Please sign in again.");
+      }
+      return apiRequest(path, {
+        ...options,
+        accessToken: refreshed.session.access_token,
+      });
+    } catch (e: any) {
+      // If refresh fails, sign out and rethrow a user-friendly message
+      if (e?.message !== "Session expired. Please sign in again.") {
+        await supabase.auth.signOut().catch(() => {});
+        throw new Error("Session expired. Please sign in again.");
+      }
+      throw e;
+    }
   }
 
   return apiRequest(path, { ...options, accessToken: session.access_token });
