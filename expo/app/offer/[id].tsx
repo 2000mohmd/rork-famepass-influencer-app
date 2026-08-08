@@ -33,7 +33,6 @@ import { useCurrency } from "@/hooks/useCurrency";
 import { useBookmarkStore } from "@/store/bookmarkStore";
 import type { ThemeColors } from "@/constants/colors";
 import { useAuth } from "@/app/_layout";
-import { supabase } from "@/lib/supabase";
 import { apiRequestWithRefresh } from "@/lib/api";
 import { mapOfferFromAPI } from "@/constants/offerMapper";
 import type { Platform } from "@/constants/offerMapper";
@@ -66,7 +65,7 @@ interface Offer {
   slotsRemaining: number;
   expiryDate: string;
   bookingWindow: string;
-  location: { address: string; city: string; lat: number; lon: number };
+  location: { address: string; city: string; lat: number | null; lon: number | null };
   postRequirements: { postType: string; numberOfPosts: number; captionRequirements: string };
   status: "open" | "full" | "expired";
   type: "offer" | "event";
@@ -76,6 +75,29 @@ interface Offer {
 
 interface CategoryLookup {
   [key: string]: { name: string; color: string };
+}
+
+/**
+ * The application lifecycle shown to the creator, mirroring the web app's
+ * collaboration timeline. `offer_redemptions.status` drives which steps are done.
+ */
+const APPLICATION_STEPS: { key: string; label: string }[] = [
+  { key: "applied", label: "Applied" },
+  { key: "approved", label: "Approved by venue" },
+  { key: "checked_in", label: "Checked in" },
+];
+
+function isStepDone(stepKey: string, status: string): boolean {
+  switch (stepKey) {
+    case "applied":
+      return true;
+    case "approved":
+      return status === "approved" || status === "redeemed";
+    case "checked_in":
+      return status === "redeemed";
+    default:
+      return false;
+  }
 }
 
 function PlatformBadge({ platform, colors }: { platform: Platform; colors: ThemeColors }) {
@@ -109,15 +131,12 @@ export default function OfferDetailScreen() {
   const [showSuccess, setShowSuccess] = useState(false);
   const [qrCode, setQrCode] = useState<string | null>(null);
 
-  // Fetch categories for display lookup
+  // Fetch categories for display lookup (via the API, not the client directly)
   const { data: categoriesData } = useQuery({
     queryKey: ["categories"],
     queryFn: async () => {
-      const { data } = await supabase
-        .from("categories")
-        .select("id, name, color")
-        .eq("is_active", true);
-      return data ?? [];
+      const data = await apiRequestWithRefresh("/categories") as any;
+      return (Array.isArray(data) ? data : (data?.categories ?? [])) as any[];
     },
   });
 
@@ -133,33 +152,36 @@ export default function OfferDetailScreen() {
     return map;
   }, [categoriesData, colors.accent]);
 
-  // Fetch offer via API
-  const { data: offer, isLoading } = useQuery({
+  // Fetch offer via API. /offers/:id also returns the creator's own redemption
+  // (status + qr_code), which drives the application progress panel below.
+  const { data: offerData, isLoading } = useQuery({
     queryKey: ["offer", id],
     queryFn: async () => {
       if (!id) return null;
-      const data = await apiRequestWithRefresh(`/offers/${id}`) as { offer?: any };
+      const data = await apiRequestWithRefresh(`/offers/${id}`) as {
+        offer?: any;
+        my_redemption?: any;
+        is_saved?: boolean;
+      };
       const raw = data.offer ?? data;
       if (!raw) return null;
-      return mapOfferFromAPI(raw);
+      return {
+        offer: mapOfferFromAPI(raw),
+        myRedemption: data.my_redemption ?? null,
+        isSaved: !!data.is_saved,
+      };
     },
     enabled: !!id,
   });
 
-  // Check if already applied
-  const { data: alreadyApplied } = useQuery({
-    queryKey: ["offer-redemption", id, session?.user?.id],
-    queryFn: async () => {
-      if (!id || !session?.user?.id) return false;
-      const { count } = await supabase
-        .from("offer_redemptions")
-        .select("*", { count: "exact", head: true })
-        .eq("offer_id", id)
-        .eq("influencer_id", session.user.id);
-      return (count ?? 0) > 0;
-    },
-    enabled: !!id && !!session?.user?.id,
-  });
+  const offer = offerData?.offer ?? null;
+  const myRedemption = offerData?.myRedemption ?? null;
+  // The application exists as soon as a redemption row does; status tells us
+  // where it is in the venue's review (pending → approved → redeemed).
+  const alreadyApplied = !!myRedemption;
+  const redemptionStatus: string = myRedemption?.status ?? "";
+  // The venue verifies this code at the door; it only matters once approved.
+  const checkInCode: string | null = myRedemption?.qr_code ?? null;
 
   // Apply via API — sends the creator's chosen visit date/time as scheduled_date
   const applyMutation = useMutation({
@@ -175,7 +197,7 @@ export default function OfferDetailScreen() {
       setShowSuccess(true);
       setShowDatePicker(false);
       setApplied(true);
-      queryClient.invalidateQueries({ queryKey: ["offer-redemption", id] });
+      queryClient.invalidateQueries({ queryKey: ["offer", id] });
       queryClient.invalidateQueries({ queryKey: ["bookings"] });
     },
     onError: (e: any) => {
@@ -464,16 +486,75 @@ export default function OfferDetailScreen() {
           </View>
         )}
 
+        {/* Application progress — mirrors the web app's collaboration timeline */}
+        {alreadyApplied && (
+          <View style={styles.contentSection}>
+            <Text style={styles.sectionLabel}>Your collaboration</Text>
+            <View style={styles.progressCard}>
+              {APPLICATION_STEPS.map((step, i) => {
+                const done = isStepDone(step.key, redemptionStatus);
+                return (
+                  <View key={step.key} style={styles.progressRow}>
+                    <View style={[styles.progressDot, done && { backgroundColor: colors.accent, borderColor: colors.accent }]}>
+                      {done ? (
+                        <CheckCircle2 size={12} color={colors.background} />
+                      ) : (
+                        <Text style={styles.progressDotText}>{i + 1}</Text>
+                      )}
+                    </View>
+                    <Text style={[styles.progressLabel, done && { color: colors.text, fontWeight: "700" }]}>
+                      {step.label}
+                    </Text>
+                  </View>
+                );
+              })}
+
+              {redemptionStatus === "pending" && (
+                <Text style={styles.progressNote}>
+                  Waiting for {offer.venueName} to review your application. You&apos;ll be notified once it&apos;s approved.
+                </Text>
+              )}
+              {redemptionStatus === "rejected" && (
+                <Text style={[styles.progressNote, { color: colors.red }]}>
+                  The venue declined this application.
+                </Text>
+              )}
+              {(redemptionStatus === "approved" || redemptionStatus === "redeemed") && (
+                checkInCode ? (
+                  <View style={styles.codeBox}>
+                    <Text style={styles.codeLabel}>Your check-in code</Text>
+                    <Text style={styles.codeValue}>{checkInCode}</Text>
+                    <Text style={styles.codeHint}>Show this to the venue staff when you arrive.</Text>
+                  </View>
+                ) : (
+                  <Text style={styles.progressNote}>
+                    You&apos;re approved. The venue will confirm your visit when you arrive.
+                  </Text>
+                )
+              )}
+            </View>
+          </View>
+        )}
+
         <View style={{ height: 20 }} />
       </ScrollView>
 
       {/* Bottom CTA */}
       <View style={[styles.bottomBar, { paddingBottom: insets.bottom }]}>
         {applied || alreadyApplied ? (
-          <View style={[styles.ctaButton, styles.ctaSuccess]}>
+          <Pressable
+            style={[styles.ctaButton, styles.ctaSuccess]}
+            onPress={() => router.push("/(tabs)/attendance")}
+          >
             <CheckCircle2 size={18} color={colors.green} />
-            <Text style={styles.ctaSuccessText}>Applied</Text>
-          </View>
+            <Text style={styles.ctaSuccessText}>
+              {redemptionStatus === "approved" || redemptionStatus === "redeemed"
+                ? "Approved · View booking"
+                : redemptionStatus === "rejected"
+                  ? "Not approved"
+                  : "Applied · Awaiting venue"}
+            </Text>
+          </Pressable>
         ) : offer.status === "expired" ? (
           <View style={[styles.ctaButton, styles.ctaDisabled]}>
             <Text style={styles.ctaDisabledText}>Offer Expired</Text>
@@ -573,18 +654,22 @@ export default function OfferDetailScreen() {
         <View style={styles.successModalOverlay}>
           <View style={styles.successModal}>
             <CheckCircle2 size={48} color={colors.green} />
-            <Text style={styles.successTitle}>Booking Confirmed!</Text>
+            <Text style={styles.successTitle}>Application sent!</Text>
             <Text style={styles.successText}>
               {selectedDate && selectedTime
-                ? `See you on ${new Date(`${selectedDate}T${selectedTime}:00`).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })} at ${selectedTime}.`
-                : "Your visit is booked."}
+                ? `You requested ${new Date(`${selectedDate}T${selectedTime}:00`).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })} at ${selectedTime}.`
+                : "Your request has been sent."}
             </Text>
             {qrCode && (
               <View style={styles.qrCodeBox}>
                 <Text style={styles.qrCode}>{qrCode}</Text>
               </View>
             )}
-            <Text style={styles.successHint}>Show this code at the venue when you visit.</Text>
+            {/* The venue must approve before this code is usable — don't imply
+                the visit is already confirmed. */}
+            <Text style={styles.successHint}>
+              {offer.venueName} will review your application. Once approved, show this code at the venue.
+            </Text>
             <Pressable
               style={styles.successBtn}
               onPress={() => {
@@ -632,6 +717,16 @@ function createStyles(colors: ThemeColors) {
     offerTitle: { fontSize: 24, fontWeight: "700", color: colors.text, lineHeight: 30 },
     offerDescription: { fontSize: 15, color: colors.textSecondary, lineHeight: 22, marginTop: 10 },
     sectionLabel: { fontSize: 16, fontWeight: "700", color: colors.text, marginBottom: 12 },
+    progressCard: { backgroundColor: colors.card, borderRadius: 14, borderWidth: 1, borderColor: colors.cardBorder, padding: 14, gap: 10 },
+    progressRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+    progressDot: { width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceElevated, borderWidth: 1, borderColor: colors.cardBorder },
+    progressDotText: { fontSize: 10, fontWeight: "700", color: colors.textMuted },
+    progressLabel: { fontSize: 14, color: colors.textSecondary },
+    progressNote: { fontSize: 13, color: colors.textMuted, marginTop: 4, lineHeight: 18 },
+    codeBox: { marginTop: 6, padding: 12, borderRadius: 12, backgroundColor: colors.accent + "12", borderWidth: 1, borderColor: colors.accent + "30" },
+    codeLabel: { fontSize: 11, color: colors.textMuted, marginBottom: 2 },
+    codeValue: { fontSize: 22, fontWeight: "700", letterSpacing: 3, color: colors.text },
+    codeHint: { fontSize: 11, color: colors.textMuted, marginTop: 4 },
     detailsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
     detailCard: { width: "47%", backgroundColor: colors.card, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: colors.cardBorder, gap: 4 },
     detailCardValue: { fontSize: 20, fontWeight: "700", color: colors.accent },

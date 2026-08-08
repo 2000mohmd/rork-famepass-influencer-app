@@ -1,5 +1,6 @@
 import { useRouter } from "expo-router";
 import {
+  CalendarDays,
   CheckCircle2,
   Clock,
   XCircle,
@@ -33,8 +34,12 @@ interface Invitation {
   message: string | null;
   status: "pending" | "accepted" | "declined";
   created_at: string;
+  scheduled_at?: string | null;
+  /** Set by the API when an invitation is accepted; shown at the venue. */
+  qr_code?: string | null;
   venue_name?: string;
   venue_logo_url?: string;
+  venue_address?: string;
   offer_title?: string;
 }
 
@@ -63,6 +68,7 @@ export default function InvitationsScreen() {
         ...inv,
         venue_name: inv.venues?.name ?? "Venue",
         venue_logo_url: inv.venues?.logo_url ?? null,
+        venue_address: inv.venues?.address ?? inv.venues?.city ?? "",
         offer_title: inv.offers?.title ?? "Offer",
       })) as Invitation[];
     },
@@ -170,13 +176,37 @@ export default function InvitationsScreen() {
                   <Text style={styles.offerTitle} numberOfLines={1}>
                     {item.offer_title}
                   </Text>
+                  {!!item.venue_address && (
+                    <Text style={styles.venueAddress} numberOfLines={1}>
+                      {item.venue_address}
+                    </Text>
+                  )}
                   {item.message && (
                     <Text style={styles.message} numberOfLines={2}>
                       {item.message}
                     </Text>
                   )}
+                  {!!item.scheduled_at && (
+                    <View style={styles.scheduledRow}>
+                      <CalendarDays size={12} color={colors.textMuted} />
+                      <Text style={styles.scheduledText}>
+                        {new Date(item.scheduled_at).toLocaleString(undefined, {
+                          weekday: "short", month: "short", day: "numeric",
+                          hour: "numeric", minute: "2-digit",
+                        })}
+                      </Text>
+                    </View>
+                  )}
                 </View>
               </View>
+
+              {/* The API generates this code when the invitation is accepted. */}
+              {item.status === "accepted" && !!item.qr_code && (
+                <View style={styles.codeRow}>
+                  <Text style={styles.codeLabel}>Check-in code</Text>
+                  <Text style={styles.codeValue}>{item.qr_code}</Text>
+                </View>
+              )}
 
               {activeTab === "pending" && (
                 <View style={styles.cardActions}>
@@ -247,6 +277,12 @@ function createStyles(colors: ThemeColors) {
     venueName: { fontSize: 15, fontWeight: "600", color: colors.text },
     offerTitle: { fontSize: 13, color: colors.textSecondary },
     message: { fontSize: 13, color: colors.textMuted, lineHeight: 18, fontStyle: "italic" },
+    venueAddress: { fontSize: 12, color: colors.textMuted },
+    scheduledRow: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 2 },
+    scheduledText: { fontSize: 12, color: colors.textMuted },
+    codeRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 10, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10, backgroundColor: colors.accent + "12", borderWidth: 1, borderColor: colors.accent + "30" },
+    codeLabel: { fontSize: 11, color: colors.textMuted },
+    codeValue: { fontSize: 15, fontWeight: "700", letterSpacing: 2, color: colors.text },
     cardActions: { flexDirection: "row", gap: 10 },
     acceptButton: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: colors.accent, paddingVertical: 12, borderRadius: 12, gap: 6 },
     acceptText: { fontSize: 15, fontWeight: "700", color: colors.background },

@@ -57,8 +57,9 @@ export type AttendanceStatus =
 export interface OfferLocation {
   address: string;
   city: string;
-  lat: number;
-  lon: number;
+  /** null when the venue has no coordinates — do not coerce to 0 (that is a real place). */
+  lat: number | null;
+  lon: number | null;
 }
 
 export interface Offer {
@@ -285,8 +286,11 @@ export function mapOfferFromAPI(item: any): Offer {
     location: {
       city: item.venues?.city ?? "",
       address: item.venues?.address ?? "",
-      lat: item.venues?.latitude ?? 0,
-      lon: item.venues?.longitude ?? 0,
+      // Keep null when the venue has no coordinates. Coercing to 0 made
+      // "no location" indistinguishable from a real point off West Africa,
+      // and truthiness checks downstream then dropped every venue.
+      lat: typeof item.venues?.latitude === "number" ? item.venues.latitude : null,
+      lon: typeof item.venues?.longitude === "number" ? item.venues.longitude : null,
     },
     postRequirements: {
       postType: item.post_type ?? "story",

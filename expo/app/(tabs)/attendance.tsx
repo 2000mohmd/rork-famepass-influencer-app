@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   ChevronRight,
   KeyRound,
+  Link as LinkIcon,
 } from "lucide-react-native";
 import React, { useCallback, useMemo, useState } from "react";
 import {
@@ -38,6 +39,17 @@ interface Booking {
   status: string;
   qr_code?: string;
   offer_id?: string;
+  deliverable?: Deliverable | null;
+}
+
+interface Deliverable {
+  id: string;
+  status: string;
+  post_url?: string | null;
+  views?: number | null;
+  likes?: number | null;
+  comments?: number | null;
+  shares?: number | null;
 }
 
 const TABS: { key: BookingTab; label: string }[] = [
@@ -47,17 +59,20 @@ const TABS: { key: BookingTab; label: string }[] = [
 ];
 
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
-  confirmed: { label: "Confirmed", color: "#34D399" },
-  pending: { label: "Pending", color: "#F59E0B" },
+  upcoming: { label: "Upcoming", color: "#F59E0B" },
   checked_in: { label: "Checked In", color: "#B8923A" },
   completed: { label: "Completed", color: "#34D399" },
   no_show: { label: "No Show", color: "#EF4444" },
   cancelled: { label: "Cancelled", color: "#EF4444" },
 };
 
-const UPCOMING_STATUSES = ["confirmed", "pending"];
-const PAST_STATUSES = ["checked_in", "completed", "no_show"];
-const CANCELLED_STATUSES = ["cancelled"];
+// bookings.status CHECK constraint: upcoming | checked_in | completed | cancelled | no_show.
+// The tabs group those; "past" is not a status, so we must not send it to the API.
+const TAB_STATUSES: Record<BookingTab, string[]> = {
+  upcoming: ["upcoming"],
+  past: ["checked_in", "completed", "no_show"],
+  cancelled: ["cancelled"],
+};
 
 function getStatusConfig(status: string) {
   return STATUS_CONFIG[status] ?? { label: status, color: "#5E5E5E" };
@@ -74,31 +89,45 @@ export default function AttendanceScreen() {
   const [checkInBooking, setCheckInBooking] = useState<Booking | null>(null);
   const [otpInput, setOtpInput] = useState("");
   const [otpError, setOtpError] = useState<string | null>(null);
+  const [postBooking, setPostBooking] = useState<Booking | null>(null);
+  const [postUrl, setPostUrl] = useState("");
+  const [postError, setPostError] = useState<string | null>(null);
 
+  // Fetch every booking once and group by tab locally. Sending the tab name as
+  // `?status=` returned nothing for "past", which is not a real booking status.
   const { data: bookings, isLoading } = useQuery({
-    queryKey: ["bookings", activeTab],
+    queryKey: ["bookings"],
     queryFn: async () => {
-      const data = await apiRequestWithRefresh(`/bookings?status=${activeTab}`) as { bookings?: any[] };
+      const data = await apiRequestWithRefresh("/bookings") as { bookings?: any[] };
       return (data.bookings ?? []).map((b: any) => ({
         id: b.id,
         venue_name: b.venues?.name ?? "Venue",
         venue_logo_url: b.venues?.logo_url ?? null,
         offer_title: b.offers?.title ?? "Offer",
         value_worth: b.offers?.value_worth ?? "$0",
-        date: b.booking_date ?? b.created_at,
-        status: b.status ?? "confirmed",
-        qr_code: b.qr_code ?? null,
+        date: b.scheduled_date ?? b.booking_date ?? b.created_at,
+        status: b.status ?? "upcoming",
+        // The check-in code lives on the linked redemption, not on the booking.
+        qr_code: b.offer_redemptions?.qr_code ?? b.qr_code ?? null,
         offer_id: b.offer_id ?? null,
+        deliverable: (b.deliverables ?? [])[0] ?? null,
       })) as Booking[];
     },
     enabled: !!session?.user?.id,
   });
 
   const checkInMutation = useMutation({
-    mutationFn: async ({ bookingId, code }: { bookingId: string; code: string }) => {
-      // Route through the API so the check-in is validated + written server-side
-      // (the code is sent along for the backend to verify against the venue's).
-      await apiRequestWithRefresh(`/bookings/${bookingId}/checkin`, {
+    mutationFn: async ({ booking, code }: { booking: Booking; code: string }) => {
+      // The API's checkin endpoint does not verify the code, so we match it here
+      // against the booking's redemption code — the same check the web app does.
+      const expected = (booking.qr_code ?? "").trim().toUpperCase();
+      if (!expected) {
+        throw new Error("No check-in code on file. Ask the venue for one.");
+      }
+      if (expected !== code.trim().toUpperCase()) {
+        throw new Error("That code doesn't match this booking.");
+      }
+      await apiRequestWithRefresh(`/bookings/${booking.id}/checkin`, {
         method: "POST",
         body: { code },
       });
@@ -114,8 +143,51 @@ export default function AttendanceScreen() {
     },
   });
 
-  // Server filters by status now — use bookings directly
-  const filteredBookings = bookings ?? [];
+  // Submit the creator's post link. The backend pulls the metrics from it.
+  const submitPostMutation = useMutation({
+    mutationFn: async ({ bookingId, url }: { bookingId: string; url: string }) => {
+      const platform = url.includes("tiktok.com") ? "tiktok" : "instagram";
+      await apiRequestWithRefresh("/deliverables", {
+        method: "POST",
+        body: {
+          booking_id: bookingId,
+          platform,
+          content_type: "post",
+          content_url: url,
+          post_url: url,
+        },
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["bookings"] });
+      setPostBooking(null);
+      setPostUrl("");
+      setPostError(null);
+    },
+    onError: (err: any) => {
+      setPostError(err?.message ?? "Failed to submit your post.");
+    },
+  });
+
+  const submitPost = useCallback(() => {
+    const clean = postUrl.trim();
+    if (!clean) {
+      setPostError("Paste your Instagram or TikTok post link.");
+      return;
+    }
+    if (!/^https?:\/\//i.test(clean)) {
+      setPostError("Enter the full link, starting with https://");
+      return;
+    }
+    if (!postBooking) return;
+    setPostError(null);
+    submitPostMutation.mutate({ bookingId: postBooking.id, url: clean });
+  }, [postUrl, postBooking, submitPostMutation]);
+
+  const filteredBookings = useMemo(
+    () => (bookings ?? []).filter((b) => TAB_STATUSES[activeTab].includes(b.status)),
+    [bookings, activeTab],
+  );
 
   const handleCheckIn = useCallback((booking: Booking) => {
     setOtpInput("");
@@ -190,11 +262,29 @@ export default function AttendanceScreen() {
                     </View>
                     <View style={styles.cardFooter}>
                       <Text style={styles.cardValue}>{currency} {item.value_worth?.replace(/^\$/, "")}</Text>
-                      {activeTab === "upcoming" && (
+                      {item.status === "upcoming" && (
                         <Pressable style={styles.checkInButton} onPress={() => handleCheckIn(item)}>
                           <KeyRound size={13} color={colors.accent} />
                           <Text style={styles.checkInText}>Check In</Text>
                         </Pressable>
+                      )}
+                      {/* After checking in, the creator owes the venue a post. */}
+                      {item.status === "checked_in" && !item.deliverable && (
+                        <Pressable
+                          style={styles.checkInButton}
+                          onPress={() => { setPostUrl(""); setPostError(null); setPostBooking(item); }}
+                        >
+                          <LinkIcon size={13} color={colors.accent} />
+                          <Text style={styles.checkInText}>Share post</Text>
+                        </Pressable>
+                      )}
+                      {/* Once the post is in, the venue reviews it and closes out
+                          the booking — the creator has nothing left to do here. */}
+                      {item.status === "checked_in" && !!item.deliverable && (
+                        <View style={styles.awaitingPill}>
+                          <CheckCircle2 size={13} color={colors.textMuted} />
+                          <Text style={styles.awaitingText}>Awaiting venue</Text>
+                        </View>
                       )}
                       {item.offer_id && (
                         <Pressable onPress={() => router.push(`/offer/${item.offer_id}`)}>
@@ -202,6 +292,26 @@ export default function AttendanceScreen() {
                         </Pressable>
                       )}
                     </View>
+
+                    {/* Check-in code for an upcoming visit */}
+                    {item.status === "upcoming" && !!item.qr_code && (
+                      <View style={styles.codeRow}>
+                        <Text style={styles.codeRowLabel}>Check-in code</Text>
+                        <Text style={styles.codeRowValue}>{item.qr_code}</Text>
+                      </View>
+                    )}
+
+                    {/* Submitted post + whatever metrics the backend pulled */}
+                    {!!item.deliverable && (
+                      <View style={styles.deliverableRow}>
+                        <Text style={styles.deliverableStatus}>
+                          Post {item.deliverable.status}
+                        </Text>
+                        <Text style={styles.deliverableMetrics}>
+                          {item.deliverable.views ?? 0} views · {item.deliverable.likes ?? 0} likes · {item.deliverable.comments ?? 0} comments
+                        </Text>
+                      </View>
+                    )}
                   </View>
                 </View>
               </View>
@@ -245,12 +355,61 @@ export default function AttendanceScreen() {
                 style={[styles.modalSubmit, checkInMutation.isPending && { opacity: 0.5 }]}
                 onPress={() => {
                   if (checkInBooking && otpInput.trim()) {
-                    checkInMutation.mutate({ bookingId: checkInBooking.id, code: otpInput.trim() });
+                    checkInMutation.mutate({ booking: checkInBooking, code: otpInput.trim() });
                   }
                 }}
                 disabled={checkInMutation.isPending || !otpInput.trim()}
               >
                 {checkInMutation.isPending ? (
+                  <ActivityIndicator size="small" color={colors.background} />
+                ) : (
+                  <Text style={styles.modalSubmitText}>Submit</Text>
+                )}
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </RNModal>
+
+      {/* Share-your-post modal */}
+      <RNModal
+        visible={!!postBooking}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPostBooking(null)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setPostBooking(null)}>
+          <Pressable style={styles.modalContent} onPress={() => {}}>
+            <LinkIcon size={36} color={colors.accent} />
+            <Text style={styles.modalTitle}>Share your post</Text>
+            <Text style={styles.modalSubtitle}>
+              Paste the link to your Instagram or TikTok post for {postBooking?.offer_title}. We&apos;ll pull the views, likes and comments automatically.
+            </Text>
+
+            <TextInput
+              style={styles.otpInput}
+              placeholder="https://instagram.com/p/…"
+              placeholderTextColor={colors.textMuted}
+              value={postUrl}
+              onChangeText={setPostUrl}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+              autoFocus
+            />
+
+            {postError && <Text style={styles.otpError}>{postError}</Text>}
+
+            <View style={styles.modalActions}>
+              <Pressable style={styles.modalCancel} onPress={() => setPostBooking(null)}>
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.modalSubmit, submitPostMutation.isPending && { opacity: 0.5 }]}
+                onPress={submitPost}
+                disabled={submitPostMutation.isPending}
+              >
+                {submitPostMutation.isPending ? (
                   <ActivityIndicator size="small" color={colors.background} />
                 ) : (
                   <Text style={styles.modalSubmitText}>Submit</Text>
@@ -292,6 +451,14 @@ function createStyles(colors: ThemeColors) {
     cardDate: { fontSize: 12, color: colors.textMuted },
     cardFooter: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: colors.cardBorder },
     cardValue: { fontSize: 15, fontWeight: "700", color: colors.accent },
+    codeRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10, backgroundColor: colors.accent + "12", borderWidth: 1, borderColor: colors.accent + "30" },
+    codeRowLabel: { fontSize: 11, color: colors.textMuted },
+    codeRowValue: { fontSize: 15, fontWeight: "700", letterSpacing: 2, color: colors.text },
+    deliverableRow: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: colors.cardBorder, gap: 2 },
+    deliverableStatus: { fontSize: 12, fontWeight: "700", color: colors.text, textTransform: "capitalize" },
+    deliverableMetrics: { fontSize: 11, color: colors.textMuted },
+    awaitingPill: { flexDirection: "row", alignItems: "center", gap: 5 },
+    awaitingText: { fontSize: 12, fontWeight: "600", color: colors.textMuted },
     checkInButton: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: colors.accent + "12" },
     checkInText: { fontSize: 12, fontWeight: "600", color: colors.accent },
     emptyState: { alignItems: "center", justifyContent: "center", paddingVertical: 80, gap: 12 },

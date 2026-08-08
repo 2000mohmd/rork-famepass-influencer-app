@@ -3,6 +3,8 @@ import {
   ChevronRight,
   Pencil,
   Settings,
+  Star,
+  Trophy,
   Wallet,
 } from "lucide-react-native";
 import React, { useMemo, useState } from "react";
@@ -156,6 +158,20 @@ export default function ProfileScreen() {
               <View style={styles.settingsItemLeft}>
                 <Wallet size={18} color={colors.accentLight} />
                 <Text style={styles.settingsItemText}>Earnings{walletBalance > 0 ? ` · ${currency} ${walletBalance.toLocaleString()}` : ""}</Text>
+              </View>
+              <ChevronRight size={16} color={colors.textMuted} />
+            </Pressable>
+            <Pressable style={styles.settingsItem} onPress={() => router.navigate("/rewards" as any)}>
+              <View style={styles.settingsItemLeft}>
+                <Trophy size={18} color={colors.accentLight} />
+                <Text style={styles.settingsItemText}>Rewards & Status</Text>
+              </View>
+              <ChevronRight size={16} color={colors.textMuted} />
+            </Pressable>
+            <Pressable style={styles.settingsItem} onPress={() => router.navigate("/reviews" as any)}>
+              <View style={styles.settingsItemLeft}>
+                <Star size={18} color={colors.textSecondary} />
+                <Text style={styles.settingsItemText}>Reviews</Text>
               </View>
               <ChevronRight size={16} color={colors.textMuted} />
             </Pressable>

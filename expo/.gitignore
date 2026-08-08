@@ -14,10 +14,15 @@ ios/
 android/
 *.orig.*
 *.jks
+*.keystore
 *.p8
 *.p12
 *.key
 *.mobileprovision
+
+# signing secrets — never commit
+.keystore-secret
+credentials.json
 
 # Metro
 .metro-health-check*
