@@ -321,6 +321,15 @@ export default function RootLayout() {
                   animation: "slide_from_right",
                 }}
               />
+              {/* Both screens draw their own back header, so keep the stack one hidden. */}
+              <Stack.Screen
+                name="rewards"
+                options={{ headerShown: false, animation: "slide_from_right" }}
+              />
+              <Stack.Screen
+                name="reviews"
+                options={{ headerShown: false, animation: "slide_from_right" }}
+              />
               <Stack.Screen
                 name="connect-social"
                 options={{

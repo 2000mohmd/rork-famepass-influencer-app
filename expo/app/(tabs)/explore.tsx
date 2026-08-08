@@ -6,6 +6,7 @@ import {
   MapPin,
   Navigation,
   Search,
+  SlidersHorizontal,
   X,
 } from "lucide-react-native";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -54,6 +55,11 @@ interface Offer {
   status: "open" | "full" | "expired";
   location: { address: string; city: string };
   distanceKm?: number | null;
+  offerType: string;
+  createdAt: string;
+  venueCountry?: string;
+  categoryId: string | null;
+  categoryName: string;
 }
 
 interface CategoryItem {
@@ -62,6 +68,37 @@ interface CategoryItem {
   color: string;
   icon: string | null;
 }
+
+interface VenuePin {
+  id: string;
+  name: string;
+  city: string;
+  logoUrl: string | null;
+  lat: number;
+  lon: number;
+}
+
+/** Mirrors the web Explore filters (InfluencerExplore.tsx). */
+type TypeFilter = "all" | "free" | "paid" | "event";
+type SortBy = "newest" | "oldest" | "title_asc" | "title_desc" | "slots_desc";
+
+const TYPE_FILTERS: { key: TypeFilter; label: string }[] = [
+  { key: "all", label: "All types" },
+  { key: "free", label: "Barter" },
+  { key: "paid", label: "Paid" },
+  { key: "event", label: "Event" },
+];
+
+const SORT_OPTIONS: { key: SortBy; label: string }[] = [
+  { key: "newest", label: "Newest" },
+  { key: "oldest", label: "Oldest" },
+  { key: "title_asc", label: "Title A–Z" },
+  { key: "title_desc", label: "Title Z–A" },
+  { key: "slots_desc", label: "Most slots" },
+];
+
+/** Same radius the web app uses for its "nearby only" filter. */
+const NEAR_ME_RADIUS_KM = 100;
 
 function mapOfferExplore(item: any): Offer {
   const mapped = mapOfferFromAPI(item);
@@ -73,8 +110,8 @@ function mapOfferExplore(item: any): Offer {
     venueName: mapped.venueName,
     venueLogoUrl: mapped.venueLogoUrl,
     venueAddress: mapped.location.address,
-    venueLat: mapped.location.lat || null,
-    venueLon: mapped.location.lon || null,
+    venueLat: mapped.location.lat,
+    venueLon: mapped.location.lon,
     offerValue: mapped.offerValue,
     slotsRemaining: mapped.slotsRemaining,
     slotsTotal: mapped.slotsTotal,
@@ -82,6 +119,11 @@ function mapOfferExplore(item: any): Offer {
     location: mapped.location,
     // /offers?lat&lng returns distance_km on each offer when location is sent
     distanceKm: typeof item.distance_km === "number" ? item.distance_km : null,
+    offerType: item.offer_type ?? "",
+    createdAt: item.created_at ?? "",
+    venueCountry: item.venues?.country ?? undefined,
+    categoryId: item.category_id ?? null,
+    categoryName: item.categories?.name ?? item.venues?.category ?? "",
   };
 }
 
@@ -103,6 +145,13 @@ export default function ExploreScreen() {
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [locationStatus, setLocationStatus] = useState<"idle" | "on" | "denied">("idle");
   const [nearMeActive, setNearMeActive] = useState(true);
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
+  const [sortBy, setSortBy] = useState<SortBy>("newest");
+  const [myCountryOnly, setMyCountryOnly] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  // True when the near-me query came back empty and we fell back to all offers,
+  // so the UI can say so instead of silently showing unfiltered results.
+  const [nearMeEmpty, setNearMeEmpty] = useState(false);
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const requestLocation = useCallback(async () => {
@@ -165,35 +214,76 @@ export default function ExploreScreen() {
   // Resolve the selected category to its name for API filtering. `selectedCategory`
   // may be a category ID (from the chips / category grid) or a name (from Home's
   // "offers by category" See-all), so match on both.
-  const selectedCategoryName = useMemo(() => {
-    if (!selectedCategory) return null;
+  // `selectedCategory` may be an ID (chips / category grid) or a name (Home's
+  // "See all"), so resolve both forms before matching offers against it.
+  const selectedCategoryMatch = useMemo(() => {
+    if (!selectedCategory) return { id: null as string | null, name: null as string | null };
     const match = (categories ?? []).find(
       (c: CategoryItem) => c.id === selectedCategory || c.name === selectedCategory,
     );
-    return match?.name ?? selectedCategory;
+    return { id: match?.id ?? selectedCategory, name: match?.name ?? selectedCategory };
   }, [selectedCategory, categories]);
+  const selectedCategoryName = selectedCategoryMatch.name;
+  const selectedCategoryId = selectedCategoryMatch.id;
 
-  const { data: allOffers, isLoading } = useQuery({
-    queryKey: ["explore-offers", debouncedSearch, selectedCategoryName, userLocation?.lat, userLocation?.lng, nearMeActive],
+  // The creator's own country, used by the "My country" filter (web parity).
+  const { data: myProfile } = useQuery({
+    queryKey: ["my-profile-country"],
     enabled: !!session,
     queryFn: async () => {
+      const data = await apiRequestWithRefresh("/profile") as any;
+      return data?.profile ?? data ?? null;
+    },
+  });
+  const myCountry: string | undefined = myProfile?.country ?? undefined;
+
+  // Approved venues with coordinates — the map plots these, like the web app.
+  const { data: venuePins } = useQuery<VenuePin[]>({
+    queryKey: ["explore-venues"],
+    enabled: !!session,
+    queryFn: async () => {
+      const data = await apiRequestWithRefresh("/venues") as { venues?: any[] };
+      return (data.venues ?? [])
+        .filter((v: any) => Number.isFinite(v.latitude) && Number.isFinite(v.longitude))
+        .map((v: any) => ({
+          id: v.id,
+          name: v.name ?? "Venue",
+          city: v.city ?? "",
+          logoUrl: resolveStorageUrl(v.logo_url, "venues"),
+          lat: v.latitude,
+          lon: v.longitude,
+        }));
+    },
+  });
+
+  const { data: allOffers, isLoading } = useQuery({
+    queryKey: ["explore-offers", debouncedSearch, userLocation?.lat, userLocation?.lng, nearMeActive],
+    enabled: !!session,
+    queryFn: async () => {
+      // NOTE: we deliberately do NOT send `category` to /offers. That param filters
+      // an embedded venues table without an inner join, which PostgREST ignores for
+      // parent rows — every category returned the full list. We filter by
+      // category_id locally instead, the same way the web Home screen does.
       const baseParams = new URLSearchParams();
       if (debouncedSearch) baseParams.set("search", debouncedSearch);
-      if (selectedCategoryName) baseParams.set("category", selectedCategoryName);
 
-      // "Near me" (when toggled on + location available): the backend filters by
-      // distance and drops offers whose venue has no coordinates. That can return
-      // zero results (venues without coords, or nothing within the radius), so we
-      // fall back to the unlocated list rather than showing an empty screen.
+      // "Near me": the backend filters by distance and drops offers whose venue
+      // has no coordinates, so it can legitimately return zero. We still fall back
+      // to the unlocated list (an empty screen is worse), but we flag it so the UI
+      // can tell the user the filter found nothing rather than pretending it applied.
       if (nearMeActive && userLocation) {
         const nearParams = new URLSearchParams(baseParams);
         nearParams.set("lat", String(userLocation.lat));
         nearParams.set("lng", String(userLocation.lng));
-        nearParams.set("radius_km", "50");
+        nearParams.set("radius_km", String(NEAR_ME_RADIUS_KM));
         const near = await apiRequestWithRefresh(`/offers?${nearParams}`) as { offers?: any[] };
         if ((near.offers ?? []).length > 0) {
+          setNearMeEmpty(false);
           return (near.offers ?? []).map(mapOfferExplore);
         }
+        setNearMeEmpty(true);
+      } else {
+        setNearMeEmpty(false);
       }
 
       const data = await apiRequestWithRefresh(`/offers?${baseParams}`) as { offers?: any[] };
@@ -201,8 +291,52 @@ export default function ExploreScreen() {
     },
   });
 
-  // Server handles filtering now — just use allOffers directly
-  const filteredOffers = allOffers ?? [];
+  // Search and category are applied server-side. Type, country and sort are
+  // applied here — the influencer-api has no params for them yet.
+  const filteredOffers = useMemo(() => {
+    let list = [...(allOffers ?? [])];
+
+    // Match on category_id first (the reliable link), then fall back to comparing
+    // names — offers can carry a category via `categories` or `venues.category`.
+    if (selectedCategory) {
+      const wantedName = (selectedCategoryName ?? "").trim().toLowerCase();
+      list = list.filter((o) => {
+        if (o.categoryId && o.categoryId === selectedCategoryId) return true;
+        return !!wantedName && o.categoryName.trim().toLowerCase() === wantedName;
+      });
+    }
+
+    if (typeFilter !== "all") {
+      list = list.filter((o) => o.offerType === typeFilter);
+    }
+    if (myCountryOnly && myCountry) {
+      const target = myCountry.trim().toLowerCase();
+      list = list.filter((o) => (o.venueCountry ?? "").trim().toLowerCase() === target);
+    }
+
+    switch (sortBy) {
+      case "oldest":
+        list.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+        break;
+      case "title_asc":
+        list.sort((a, b) => a.title.localeCompare(b.title));
+        break;
+      case "title_desc":
+        list.sort((a, b) => b.title.localeCompare(a.title));
+        break;
+      case "slots_desc":
+        list.sort((a, b) => b.slotsRemaining - a.slotsRemaining);
+        break;
+      default:
+        list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    }
+    return list;
+  }, [allOffers, selectedCategory, selectedCategoryId, selectedCategoryName, typeFilter, myCountryOnly, myCountry, sortBy]);
+
+  const activeFilterCount =
+    (typeFilter !== "all" ? 1 : 0) +
+    (sortBy !== "newest" ? 1 : 0) +
+    (myCountryOnly ? 1 : 0);
 
   const handleOfferPress = useCallback((offerId: string) => {
     router.push(`/offer/${offerId}`);
@@ -267,7 +401,7 @@ export default function ExploreScreen() {
               fill={nearMeActive ? colors.accent : "transparent"}
             />
             <Text style={[styles.nearMeText, !nearMeActive && styles.nearMeTextMuted]}>
-              {nearMeActive ? "Near me · on" : "Near me · off"}
+              {nearMeActive ? `Near me · ${NEAR_ME_RADIUS_KM} km` : "Near me · off"}
             </Text>
           </Pressable>
         ) : (
@@ -281,7 +415,72 @@ export default function ExploreScreen() {
             </Text>
           </Pressable>
         )}
+
+        <Pressable
+          style={[styles.filterButton, activeFilterCount > 0 && styles.filterButtonActive]}
+          onPress={() => setShowFilters((v) => !v)}
+        >
+          <SlidersHorizontal size={12} color={activeFilterCount > 0 ? colors.accent : colors.textMuted} />
+          <Text style={[styles.nearMeTextMuted, activeFilterCount > 0 && { color: colors.accent, fontWeight: "700" }]}>
+            {activeFilterCount > 0 ? `Filters · ${activeFilterCount}` : "Filters"}
+          </Text>
+        </Pressable>
       </View>
+
+      {/* Near-me returned nothing — say so instead of silently showing everything */}
+      {nearMeActive && nearMeEmpty && locationStatus === "on" && (
+        <View style={styles.noticeRow}>
+          <Text style={styles.noticeText}>
+            No offers within {NEAR_ME_RADIUS_KM} km — showing all offers instead.
+          </Text>
+        </View>
+      )}
+
+      {/* Filters: type, sort, country (web parity) */}
+      {showFilters && (
+        <View style={styles.filterPanel}>
+          <Text style={styles.filterLabel}>Type</Text>
+          <View style={styles.filterChipRow}>
+            {TYPE_FILTERS.map((t) => (
+              <Pressable
+                key={t.key}
+                style={[styles.filterChip, typeFilter === t.key && styles.filterChipActive]}
+                onPress={() => setTypeFilter(t.key)}
+              >
+                <Text style={[styles.filterChipText, typeFilter === t.key && { color: colors.background }]}>
+                  {t.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <Text style={styles.filterLabel}>Sort by</Text>
+          <View style={styles.filterChipRow}>
+            {SORT_OPTIONS.map((s) => (
+              <Pressable
+                key={s.key}
+                style={[styles.filterChip, sortBy === s.key && styles.filterChipActive]}
+                onPress={() => setSortBy(s.key)}
+              >
+                <Text style={[styles.filterChipText, sortBy === s.key && { color: colors.background }]}>
+                  {s.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+
+          {!!myCountry && (
+            <Pressable
+              style={[styles.filterChip, styles.countryChip, myCountryOnly && styles.filterChipActive]}
+              onPress={() => setMyCountryOnly((v) => !v)}
+            >
+              <Text style={[styles.filterChipText, myCountryOnly && { color: colors.background }]}>
+                Only {myCountry}
+              </Text>
+            </Pressable>
+          )}
+        </View>
+      )}
 
       {/* Category Chips */}
       <View style={styles.filtersRow}>
@@ -315,7 +514,7 @@ export default function ExploreScreen() {
 
       {/* Map View */}
       {viewMode === "map" ? (
-        <MapExploreView offers={filteredOffers as any} colors={colors} onOfferPress={handleOfferPress} userLocation={userLocation} />
+        <MapExploreView offers={filteredOffers} venues={venuePins ?? []} colors={colors} onOfferPress={handleOfferPress} userLocation={userLocation} />
       ) : isLoading ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color={colors.accent} />
@@ -411,7 +610,18 @@ function createStyles(colors: ThemeColors) {
     viewToggle: { flexDirection: "row", backgroundColor: colors.card, borderRadius: 12, padding: 3, borderWidth: 1, borderColor: colors.cardBorder },
     viewToggleButton: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10 },
     viewToggleActive: { backgroundColor: colors.accent + "1E" },
-    nearMeRow: { paddingHorizontal: 20, paddingTop: 2, paddingBottom: 4 },
+    nearMeRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 20, paddingTop: 2, paddingBottom: 4 },
+    filterButton: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardBorder },
+    filterButtonActive: { backgroundColor: colors.accent + "14", borderColor: colors.accent + "30" },
+    noticeRow: { paddingHorizontal: 20, paddingBottom: 4 },
+    noticeText: { fontSize: 12, color: colors.textMuted },
+    filterPanel: { paddingHorizontal: 20, paddingVertical: 10, gap: 8, borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.cardBorder, backgroundColor: colors.surfaceElevated },
+    filterLabel: { fontSize: 11, fontWeight: "700", color: colors.textMuted, textTransform: "uppercase" },
+    filterChipRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+    filterChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardBorder },
+    filterChipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+    filterChipText: { fontSize: 12, fontWeight: "600", color: colors.textSecondary },
+    countryChip: { alignSelf: "flex-start" },
     nearMePill: { flexDirection: "row", alignItems: "center", gap: 5, alignSelf: "flex-start", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: colors.accent + "14", borderWidth: 1, borderColor: colors.accent + "30" },
     nearMePillOff: { backgroundColor: colors.card, borderColor: colors.cardBorder },
     nearMePillMuted: { backgroundColor: colors.surfaceElevated, borderColor: colors.cardBorder },
@@ -435,11 +645,15 @@ function createStyles(colors: ThemeColors) {
   });
 }
 
-function MapExploreView({ offers, colors, onOfferPress, userLocation }: { offers: Offer[]; colors: ThemeColors; onOfferPress: (id: string) => void; userLocation: { lat: number; lng: number } | null }) {
-  const pinsWithCoords = offers.filter((o: any) => o.venueLat && o.venueLon);
+function MapExploreView({ offers, venues, colors, onOfferPress, userLocation }: { offers: Offer[]; venues: VenuePin[]; colors: ThemeColors; onOfferPress: (id: string) => void; userLocation: { lat: number; lng: number } | null }) {
+  // Use a finite-number check: `0` is a valid coordinate, and a truthy test
+  // silently dropped every venue whose lat/lon was missing OR zero.
+  const pinsWithCoords = offers.filter(
+    (o) => Number.isFinite(o.venueLat) && Number.isFinite(o.venueLon),
+  );
 
-  // Only show the empty state if we have neither the user's location nor any pins.
-  if (pinsWithCoords.length === 0 && !userLocation) {
+  // Nothing at all to draw and nowhere to centre — the map would be blank.
+  if (pinsWithCoords.length === 0 && venues.length === 0 && !userLocation) {
     return (
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12, paddingHorizontal: 40 }}>
         <MapPin size={48} color={colors.textMuted} />
@@ -459,13 +673,27 @@ function MapExploreView({ offers, colors, onOfferPress, userLocation }: { offers
     status: o.status,
   })));
 
+  // Venues the offers already cover are drawn as offer pins; show the rest too,
+  // so the map still has content when offers lack coordinates (web parity).
+  const offerVenueNames = new Set(pinsWithCoords.map((o) => o.venueName));
+  const extraVenues = venues.filter((v) => !offerVenueNames.has(v.name));
+  const venuesJson = JSON.stringify(extraVenues.map((v) => ({
+    id: v.id,
+    name: v.name,
+    city: v.city,
+    lat: v.lat,
+    lon: v.lon,
+  })));
+
   const isDark = colors.background === "#0F0F0F";
   const accentHex = colors.accent;
 
-  // Center on the user when we have their location; otherwise the first offer pin.
+  // Centre on the user, else the first offer pin, else the first venue.
   const center = userLocation
     ? { lat: userLocation.lat, lon: userLocation.lng }
-    : { lat: (pinsWithCoords[0] as any).venueLat, lon: (pinsWithCoords[0] as any).venueLon };
+    : pinsWithCoords.length > 0
+      ? { lat: pinsWithCoords[0].venueLat as number, lon: pinsWithCoords[0].venueLon as number }
+      : { lat: extraVenues[0].lat, lon: extraVenues[0].lon };
   const userJson = userLocation ? JSON.stringify({ lat: userLocation.lat, lon: userLocation.lng }) : "null";
 
   const html = `<!DOCTYPE html>
@@ -477,6 +705,7 @@ function MapExploreView({ offers, colors, onOfferPress, userLocation }: { offers
 </head><body><div id="map"></div>
 <script>
 const pins = ${pinsJson};
+const venues = ${venuesJson};
 const me = ${userJson};
 const map = L.map('map').setView([${center.lat}, ${center.lon}], 12);
 L.tileLayer('https://{s}.basemaps.cartocdn.com/${isDark ? 'dark_all' : 'light_all'}/{z}/{x}/{y}{r}.png', {
@@ -491,7 +720,18 @@ pins.forEach(p=>{
   marker.bindPopup('<b>'+p.title+'</b><br/>'+p.venue+'<br/>'+p.value);
   marker.on('click',()=>{window.ReactNativeWebView?.postMessage(JSON.stringify({offerId:p.id}));});
 });
+// Venues without a matching offer pin — shown so the map isn't empty.
+venues.forEach(v=>{
+  L.circleMarker([v.lat,v.lon],{radius:7,color:'#FFFFFF',weight:2,fillColor:'${accentHex}',fillOpacity:0.85})
+    .addTo(map).bindPopup('<b>'+v.name+'</b>'+(v.city?'<br/>'+v.city:''));
+});
+// Fit to everything we drew so pins are never off-screen.
+const allPts = pins.map(p=>[p.lat,p.lon]).concat(venues.map(v=>[v.lat,v.lon]));
+if (me) allPts.push([me.lat, me.lon]);
+if (allPts.length > 1) { try { map.fitBounds(allPts, {padding:[40,40], maxZoom:14}); } catch(e){} }
 </script></body></html>`;
+
+  const nothingToPlot = pinsWithCoords.length === 0 && extraVenues.length === 0;
 
   return (
     <View style={{ flex: 1 }}>
@@ -506,6 +746,16 @@ pins.forEach(p=>{
           } catch {}
         }}
       />
+      {/* We have the user's location but no venue coordinates to draw, so the map
+          would otherwise look broken rather than empty-by-data. */}
+      {nothingToPlot && (
+        <View style={{ position: "absolute", left: 16, right: 16, top: 16, padding: 12, borderRadius: 12, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardBorder }}>
+          <Text style={{ fontSize: 13, fontWeight: "700", color: colors.text }}>No venue locations to show</Text>
+          <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 2 }}>
+            These venues haven&apos;t added map coordinates yet.
+          </Text>
+        </View>
+      )}
     </View>
   );
 }
