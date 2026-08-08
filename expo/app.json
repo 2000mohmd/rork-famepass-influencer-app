@@ -1,11 +1,12 @@
 {
   "expo": {
-    "name": "Famepass",
-    "slug": "secs98ykk46q0a7elc887",
+    "name": "FamePass",
+    "slug": "famepass-creator",
+    "owner": "mohmd",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "rork-app",
+    "scheme": "famepass",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
@@ -15,14 +16,29 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "app.rork.secs98ykk46q0a7elc887"
+      "bundleIdentifier": "app.famepass.creator",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Famepass uses your location to show venue offers and events near you.",
+        "NSPhotoLibraryUsageDescription": "Famepass needs access to your photos so you can set a profile picture."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "app.rork.secs98ykk46q0a7elc887"
+      "package": "app.famepass.creator",
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.INTERNET"
+      ],
+      "blockedPermissions": [
+        "ACCESS_BACKGROUND_LOCATION",
+        "RECORD_AUDIO"
+      ],
+      "edgeToEdgeEnabled": true,
+      "versionCode": 2
     },
     "web": {
       "favicon": "./assets/images/favicon.png"
@@ -35,10 +51,32 @@
         }
       ],
       "expo-font",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Famepass uses your location to show venue offers and events near you.",
+          "isAndroidBackgroundLocationEnabled": false
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Famepass needs access to your photos so you can set a profile picture.",
+          "cameraPermission": false
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {
+        "origin": "https://rork.com/"
+      },
+      "eas": {
+        "projectId": "36d75d9a-95ad-4c92-be04-6599104d880f"
+      }
     }
   }
 }
