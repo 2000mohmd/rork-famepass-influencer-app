@@ -1,8 +1,9 @@
 import { useRouter } from "expo-router";
-import { Save } from "lucide-react-native";
+import { Camera, Save } from "lucide-react-native";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -13,11 +14,15 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useQuery } from "@tanstack/react-query";
+import * as ImagePicker from "expo-image-picker";
 
 import { useTheme } from "@/hooks/useTheme";
 import type { ThemeColors } from "@/constants/colors";
 import { useAuth } from "@/app/_layout";
 import { apiRequestWithRefresh } from "@/lib/api";
+import { supabase } from "@/lib/supabase";
+import { resolveStorageUrl } from "@/lib/storage";
 
 export default function EditProfileScreen() {
   const router = useRouter();
@@ -34,9 +39,26 @@ export default function EditProfileScreen() {
   const [followers, setFollowers] = useState(
     profile?.followers_count ? String(profile.followers_count) : "",
   );
+  const [phone, setPhone] = useState(profile?.phone ?? "");
+  const [tiktokFollowers, setTiktokFollowers] = useState(
+    profile?.tiktok_followers ? String(profile.tiktok_followers) : "",
+  );
+  const [selectedNiches, setSelectedNiches] = useState<string[]>(profile?.niche ?? []);
+  const [avatarUri, setAvatarUri] = useState<string | null>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+
+  // Niches come from `categories`, matching how signup collects them.
+  const { data: niches } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ["categories"],
+    queryFn: async () => {
+      const data = await apiRequestWithRefresh("/categories") as any;
+      const cats = Array.isArray(data) ? data : (data?.categories ?? []);
+      return (cats as any[]).map((c: any) => ({ id: c.id, name: c.name ?? "" }));
+    },
+  });
 
   // Pre-fill all fields from profile on mount
   useEffect(() => {
@@ -48,8 +70,52 @@ export default function EditProfileScreen() {
       setInstagram(profile.instagram_handle ?? "");
       setTiktok(profile.tiktok_handle ?? "");
       setFollowers(profile.followers_count ? String(profile.followers_count) : "");
+      setPhone(profile.phone ?? "");
+      setTiktokFollowers(profile.tiktok_followers ? String(profile.tiktok_followers) : "");
+      setSelectedNiches(profile.niche ?? []);
     }
   }, [profile]);
+
+  const toggleNiche = useCallback((id: string) => {
+    setSelectedNiches((prev) =>
+      prev.includes(id) ? prev.filter((n) => n !== id) : [...prev, id],
+    );
+  }, []);
+
+  // Upload to the avatars bucket and store the path; the API resolves it to a URL.
+  const pickAvatar = useCallback(async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+    });
+    if (result.canceled || !result.assets?.[0]?.uri) return;
+    const uri = result.assets[0].uri;
+    setAvatarUri(uri);
+
+    const userId = profile?.user_id ?? profile?.id;
+    if (!userId) return;
+    setAvatarUploading(true);
+    try {
+      const res = await fetch(uri);
+      const arrayBuffer = await res.arrayBuffer();
+      const ext = (uri.split(".").pop() || "jpg").split("?")[0].toLowerCase();
+      const contentType = ext === "png" ? "image/png" : "image/jpeg";
+      const path = `${userId}/avatar.${ext}`;
+      const { error: uploadError } = await supabase.storage
+        .from("avatars")
+        .upload(path, arrayBuffer, { contentType, upsert: true });
+      if (uploadError) throw uploadError;
+      await apiRequestWithRefresh("/profile", { method: "PUT", body: { avatar_url: path } });
+      refreshProfile?.();
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to upload photo.");
+      setAvatarUri(null);
+    } finally {
+      setAvatarUploading(false);
+    }
+  }, [profile, refreshProfile]);
 
   const handleSave = useCallback(async () => {
     setError(null);
@@ -70,6 +136,9 @@ export default function EditProfileScreen() {
           instagram_handle: instagram.trim(),
           tiktok_handle: tiktok.trim(),
           followers_count: Number(followers) || 0,
+          phone: phone.trim() || undefined,
+          tiktok_followers: Number(tiktokFollowers) || 0,
+          niche: selectedNiches,
         },
       });
 
@@ -81,7 +150,7 @@ export default function EditProfileScreen() {
     } finally {
       setLoading(false);
     }
-  }, [fullName, bio, city, country, instagram, tiktok, followers, profile, refreshProfile, router]);
+  }, [fullName, bio, city, country, instagram, tiktok, followers, phone, tiktokFollowers, selectedNiches, profile, refreshProfile, router]);
 
   const styles = useMemo(() => createStyles(colors), [colors]);
 
@@ -105,6 +174,30 @@ export default function EditProfileScreen() {
             <Text style={styles.successText}>Profile updated!</Text>
           </View>
         )}
+
+        {/* Profile photo */}
+        <View style={styles.avatarSection}>
+          <Pressable style={styles.avatarWrapper} onPress={pickAvatar} disabled={avatarUploading}>
+            {avatarUri || profile?.avatar_url ? (
+              <Image
+                source={{ uri: avatarUri ?? resolveStorageUrl(profile?.avatar_url, "avatars") ?? undefined }}
+                style={styles.avatar}
+              />
+            ) : (
+              <View style={[styles.avatar, styles.avatarPlaceholder]}>
+                <Camera size={22} color={colors.textMuted} />
+              </View>
+            )}
+            {avatarUploading && (
+              <View style={styles.avatarOverlay}>
+                <ActivityIndicator size="small" color="#FFF" />
+              </View>
+            )}
+          </Pressable>
+          <Text style={styles.avatarHint}>
+            {avatarUploading ? "Uploading…" : "Tap to change photo"}
+          </Text>
+        </View>
 
         <View style={styles.inputGroup}>
           <Text style={styles.label}>Full name</Text>
@@ -178,16 +271,61 @@ export default function EditProfileScreen() {
           />
         </View>
 
+        <View style={styles.row}>
+          <View style={[styles.inputGroup, { flex: 1 }]}>
+            <Text style={styles.label}>Instagram followers</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="e.g. 50000"
+              placeholderTextColor={colors.textMuted}
+              keyboardType="numeric"
+              value={followers}
+              onChangeText={setFollowers}
+            />
+          </View>
+          <View style={[styles.inputGroup, { flex: 1 }]}>
+            <Text style={styles.label}>TikTok followers</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="e.g. 20000"
+              placeholderTextColor={colors.textMuted}
+              keyboardType="numeric"
+              value={tiktokFollowers}
+              onChangeText={setTiktokFollowers}
+            />
+          </View>
+        </View>
+
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>Follower count</Text>
+          <Text style={styles.label}>Phone</Text>
           <TextInput
             style={styles.input}
-            placeholder="e.g. 50000"
+            placeholder="Your phone number"
             placeholderTextColor={colors.textMuted}
-            keyboardType="numeric"
-            value={followers}
-            onChangeText={setFollowers}
+            keyboardType="phone-pad"
+            value={phone}
+            onChangeText={setPhone}
           />
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Your niches</Text>
+          <View style={styles.nicheGrid}>
+            {(niches ?? []).map((n) => {
+              const active = selectedNiches.includes(n.id);
+              return (
+                <Pressable
+                  key={n.id}
+                  style={[styles.nicheChip, active && styles.nicheChipActive]}
+                  onPress={() => toggleNiche(n.id)}
+                >
+                  <Text style={[styles.nicheChipText, active && { color: colors.background }]}>
+                    {n.name}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
         </View>
 
         <Pressable
@@ -222,6 +360,16 @@ function createStyles(colors: ThemeColors) {
     input: { backgroundColor: colors.inputBackground, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, fontSize: 16, color: colors.text, borderWidth: 1, borderColor: colors.inputBorder },
     textArea: { minHeight: 90, paddingTop: 14 },
     row: { flexDirection: "row", gap: 10 },
+    avatarSection: { alignItems: "center", gap: 8, marginBottom: 4 },
+    avatarWrapper: { position: "relative" },
+    avatar: { width: 88, height: 88, borderRadius: 44, backgroundColor: colors.surfaceElevated },
+    avatarPlaceholder: { alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: colors.cardBorder },
+    avatarOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderRadius: 44, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.45)" },
+    avatarHint: { fontSize: 12, color: colors.textMuted },
+    nicheGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+    nicheChip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.cardBorder },
+    nicheChipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+    nicheChipText: { fontSize: 13, fontWeight: "600", color: colors.textSecondary },
     saveButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: colors.accent, paddingVertical: 16, borderRadius: 16, marginTop: 12, gap: 8 },
     saveText: { fontSize: 17, fontWeight: "700", color: colors.background },
   });

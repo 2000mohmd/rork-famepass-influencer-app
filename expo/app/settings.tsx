@@ -2,6 +2,7 @@ import { useRouter } from "expo-router";
 import {
   Bell,
   ChevronRight,
+  Eye,
   LogOut,
   Moon,
   ShieldCheck,
@@ -34,6 +35,8 @@ interface InfluencerSettings {
   notification_messages: boolean;
   notification_earnings: boolean;
   notification_promotions: boolean;
+  privacy_show_profile: boolean;
+  privacy_show_earnings: boolean;
 }
 
 export default function SettingsScreen() {
@@ -99,9 +102,19 @@ export default function SettingsScreen() {
     router.replace("/");
   }, [signOut, router]);
 
+  // Defaults must match the DB, or the first tap sends the value it already has.
+  const SETTING_DEFAULTS: Record<keyof InfluencerSettings, boolean> = {
+    notification_invitations: true,
+    notification_messages: true,
+    notification_earnings: true,
+    notification_promotions: false,
+    privacy_show_profile: true,
+    privacy_show_earnings: false,
+  };
+
   const toggleNotification = useCallback(
     (key: keyof InfluencerSettings) => {
-      const current = settings?.[key] ?? true;
+      const current = settings?.[key] ?? SETTING_DEFAULTS[key];
       updateNotifMutation.mutate({ key, value: !current });
     },
     [settings],
@@ -223,6 +236,38 @@ export default function SettingsScreen() {
               onValueChange={() => toggleNotification("notification_promotions")}
               trackColor={{ false: colors.cardBorder, true: colors.accent + "60" }}
               thumbColor={(settings?.notification_promotions ?? false) ? colors.accent : colors.textMuted}
+            />
+          </View>
+        </View>
+      </View>
+
+      {/* Privacy */}
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>Privacy</Text>
+        <View style={styles.card}>
+          <View style={styles.row}>
+            <View style={styles.rowIconRow}>
+              <Eye size={16} color={colors.textSecondary} />
+              <Text style={styles.rowLabel}>Show my profile to venues</Text>
+            </View>
+            <Switch
+              value={settings?.privacy_show_profile ?? true}
+              onValueChange={() => toggleNotification("privacy_show_profile")}
+              trackColor={{ false: colors.cardBorder, true: colors.accent + "60" }}
+              thumbColor={(settings?.privacy_show_profile ?? true) ? colors.accent : colors.textMuted}
+            />
+          </View>
+          <View style={styles.divider} />
+          <View style={styles.row}>
+            <View style={styles.rowIconRow}>
+              <Eye size={16} color={colors.textSecondary} />
+              <Text style={styles.rowLabel}>Show my earnings</Text>
+            </View>
+            <Switch
+              value={settings?.privacy_show_earnings ?? false}
+              onValueChange={() => toggleNotification("privacy_show_earnings")}
+              trackColor={{ false: colors.cardBorder, true: colors.accent + "60" }}
+              thumbColor={(settings?.privacy_show_earnings ?? false) ? colors.accent : colors.textMuted}
             />
           </View>
         </View>

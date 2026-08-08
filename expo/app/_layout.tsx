@@ -16,14 +16,19 @@ const queryClient = new QueryClient();
 
 type UserProfile = {
   id: string;
+  /** profiles.user_id — the auth user, used for storage paths. */
+  user_id?: string;
   full_name: string;
   avatar_url: string | null;
   bio: string | null;
   city: string | null;
   country: string | null;
+  phone: string | null;
   instagram_handle: string | null;
   tiktok_handle: string | null;
   followers_count: number;
+  tiktok_followers: number | null;
+  niche: string[] | null;
   engagement_rate: number;
 };
 
